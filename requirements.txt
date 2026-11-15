@@ -1,0 +1,26 @@
+# Ejecución local (app Streamlit y evaluación de escenarios).
+# El entrenamiento se hace en Colab, que ya trae TensorFlow.
+#
+# Las versiones están FIJAS para que la instalación sea siempre la misma.
+# Requieren Python 3.12:   py -3.12 -m pip install -r requirements.txt
+#
+# El formato .keras depende de la versión de Keras, así que `tensorflow` y
+# `keras` deben coincidir con los del entrenamiento. El notebook los guarda en
+# modelos/detector_config.json (campos "tensorflow" y "keras"): si allí
+# aparecen otros números, cambia esas dos líneas por los de ese archivo y pon
+# en `tf-keras` la misma versión mayor.menor que `tensorflow` (2.19.0 -> 2.19.*).
+tensorflow==2.21.0
+keras==3.15.1
+opencv-python==5.0.0.93
+numpy==2.5.3
+pandas==3.0.5
+matplotlib==3.11.2
+streamlit==1.63.0
+
+# Asistente (src/asistente.py). Estas tres van juntas:
+#  - transformers 5.x eliminó el pipeline "question-answering" que usa el
+#    asistente: debe quedarse en la última 4.x.
+#  - transformers 4.x no arranca junto a TensorFlow con Keras 3 si falta tf-keras.
+transformers==4.57.6
+tf-keras==2.21.0
+torch==2.15.0

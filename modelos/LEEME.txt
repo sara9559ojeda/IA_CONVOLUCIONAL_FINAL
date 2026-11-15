@@ -1,0 +1,4 @@
+Copia aquí los archivos que genera el notebook de Colab:
+  - detector_fuego_humo.keras
+  - detector_config.json
+  - metricas_test.json (opcional, para el reporte)

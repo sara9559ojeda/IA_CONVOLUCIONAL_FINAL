@@ -1,0 +1,5 @@
+# Para ejecutar las pruebas unitarias (carpeta tests/):
+#   py -3.12 -m pip install -r requirements-dev.txt
+#   py -3.12 -m pytest
+-r requirements.txt
+pytest==9.2.0
