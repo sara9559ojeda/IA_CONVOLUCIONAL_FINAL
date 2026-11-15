@@ -116,27 +116,75 @@ def mostrar_ejemplos(split, clases, n=6, semilla=0):
 # ==========================================================================
 # 2. Anclas por k-means (tamaños típicos de las cajas del dataset)
 # ==========================================================================
-def calcular_anclas(split, k=3, iteraciones=100, semilla=0):
+def calcular_anclas(split, k=3, iteraciones=100, semilla=0, intentos=10):
+    """k-means sobre el (ancho, alto) de las cajas, usando el IoU como parecido.
+
+    El resultado depende de los centros iniciales, así que se repite `intentos`
+    veces con inicios distintos y se conserva el de mayor IoU medio caja-ancla
+    (cuánto se solapa, en promedio, cada caja real con su ancla más parecida)."""
     wh = np.concatenate([c[:, 3:5] for c in split["cajas"] if len(c)])
     wh = wh[(wh[:, 0] > 0) & (wh[:, 1] > 0)]
-    rng = np.random.default_rng(semilla)
-    centros = wh[rng.choice(len(wh), k, replace=False)]
 
     def iou(wh, centros):
         inter = (np.minimum(wh[:, None, 0], centros[None, :, 0]) *
                  np.minimum(wh[:, None, 1], centros[None, :, 1]))
         return inter / (wh[:, :1] * wh[:, 1:2] + (centros[:, 0] * centros[:, 1])[None] - inter)
 
-    for _ in range(iteraciones):
-        asignacion = iou(wh, centros).argmax(1)
-        nuevos = np.array([np.median(wh[asignacion == j], 0) if (asignacion == j).any()
-                           else centros[j] for j in range(k)])
-        if np.allclose(nuevos, centros):
-            break
-        centros = nuevos
-    centros = centros[np.argsort(centros[:, 0] * centros[:, 1])]
-    print(f"IoU medio caja-ancla: {iou(wh, centros).max(1).mean():.3f}")
-    return centros.astype(np.float32)
+    mejores, mejor_iou = None, -1.0
+    for intento in range(intentos):
+        rng = np.random.default_rng(semilla + intento)
+        centros = wh[rng.choice(len(wh), k, replace=False)]
+        for _ in range(iteraciones):
+            asignacion = iou(wh, centros).argmax(1)
+            nuevos = np.array([np.median(wh[asignacion == j], 0) if (asignacion == j).any()
+                               else centros[j] for j in range(k)])
+            if np.allclose(nuevos, centros):
+                break
+            centros = nuevos
+        iou_medio = float(iou(wh, centros).max(1).mean())
+        if iou_medio > mejor_iou:
+            mejores, mejor_iou = centros, iou_medio
+    mejores = mejores[np.argsort(mejores[:, 0] * mejores[:, 1])]
+    print(f"IoU medio caja-ancla: {mejor_iou:.3f} ({k} anclas, mejor de {intentos} intentos)")
+    return mejores.astype(np.float32)
+
+
+def anclas_del_experimento(dir_experimento, calculadas, ruta_antigua=None):
+    """Anclas con las que se entrena (o ya se entrenó) un experimento.
+
+    Un modelo solo funciona con las anclas con las que se entrenó, así que se
+    guardan en `<dir_experimento>/anclas.npy` la primera vez y después siempre
+    se leen de ahí, aunque `calculadas` (las del k-means de esta sesión) cambien.
+
+    ruta_antigua: el anclas.npy compartido de los primeros experimentos. Solo se
+    usa si la carpeta ya tiene un entrenamiento y todavía no tiene sus anclas."""
+    dir_experimento = Path(dir_experimento)
+    dir_experimento.mkdir(parents=True, exist_ok=True)
+    ruta = dir_experimento / "anclas.npy"
+    calculadas = np.asarray(calculadas, np.float32)
+    ya_entrenado = any((dir_experimento / n).exists() for n in ("ultimo.keras", "mejor.keras"))
+    if ruta.exists():
+        anclas = np.load(ruta)
+        print("Usando las anclas guardadas en", ruta)
+    elif ya_entrenado:
+        if ruta_antigua is None or not Path(ruta_antigua).exists():
+            raise FileNotFoundError(
+                f"'{dir_experimento}' ya tiene un entrenamiento pero no sus anclas "
+                "(anclas.npy). Sin las anclas originales el modelo no se puede usar.")
+        anclas = np.load(ruta_antigua)
+        np.save(ruta, anclas)
+        print("Experimento anterior: se copiaron sus anclas desde", ruta_antigua)
+    else:
+        anclas = calculadas
+        np.save(ruta, anclas)
+        print("Anclas nuevas guardadas en", ruta)
+    if len(anclas) != len(calculadas):
+        raise ValueError(
+            f"'{dir_experimento}' se entrenó con {len(anclas)} anclas, pero ahora se piden "
+            f"{len(calculadas)} (NUM_ANCLAS en src/config.py). Para un entrenamiento nuevo "
+            "cambia DIR_EXPERIMENTO a otra carpeta; para seguir con este, vuelve a poner "
+            f"NUM_ANCLAS = {len(anclas)}.")
+    return anclas.astype(np.float32)
 
 
 # ==========================================================================

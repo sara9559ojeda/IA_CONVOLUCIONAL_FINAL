@@ -20,7 +20,11 @@ DIR_ALERTAS = DIR_RESULTADOS / "alertas"                    # capturas + alertas
 # --------------------------------------------------------------------------
 TAM_IMAGEN = 320          # la imagen se redimensiona a 320x320
 STRIDE = 16               # la red reduce la resolución 16 veces -> cuadrícula 20x20
-NUM_ANCLAS = 3            # cajas de referencia por celda (se calculan con k-means)
+# Cajas de referencia por celda (se calculan con k-means). Con 3, el ancla más
+# parecida solo se solapaba un 50 % en promedio con la caja real (IoU 0,502):
+# el fuego va de 3 px a media imagen y el humo ocupa casi toda. La app no usa
+# este número: lee las anclas del modelo entrenado en detector_config.json.
+NUM_ANCLAS = 5
 CLASES = ["humo", "fuego"]  # mismo orden que D-Fire: 0 = smoke, 1 = fire
 
 # Limpieza del dataset (src/limpieza.py)

@@ -92,7 +92,7 @@ Ejecuta cada celda con **Shift + Enter**, una por una, y revisa que cada paso d�
 | 6 | Ejemplos de duplicados y de fuga | Muestra pares de imágenes. **Revisa que cada par sea casi la misma imagen.** Si ves pares que no se parecen, mira el paso 3.3. |
 | 7 | **Verificación visual** | ⚠️ **Muy importante:** mira las imágenes. Las cajas que dicen **fuego** deben estar sobre **llamas** y las de **humo** sobre **humo**. Si salen al revés, abre `src/config.py` en Drive, cambia `CLASES = ["humo", "fuego"]` por `["fuego", "humo"]`, guarda, borra `entrenamiento/dfire_limpio.zip` y reinicia el entorno (**Entorno de ejecución → Reiniciar sesión**). Las imágenes se ven cuadradas porque se guardaron a 384×384; es normal. |
 | 8 | Estadísticas | 4 gráficas: imágenes por partición, cajas por clase, tamaño de las cajas y cajas por imagen. 📸 **Captura para el reporte.** |
-| 9 | Anclas (k-means) | Muestra 3 pares de números (ancho, alto) y un "IoU medio". |
+| 9 | Anclas (k-means) | Muestra 5 pares de números (ancho, alto) y un "IoU medio caja-ancla": cuánto se solapa, en promedio, cada caja real con su ancla más parecida. Con 3 anclas daba 0,502; con 5 debe salir más alto. 📸 **Captura para el reporte.** |
 | 10 | Modelo y `summary()` | Muestra la tabla de capas de la CNN. 📸 **Toma una captura para el reporte.** |
 | 11 | **Entrenamiento** | Empieza a mostrar `Epoch 1/60 ... loss: ... val_loss: ...`. Esta celda tarda **2–3 horas**. |
 
@@ -123,7 +123,7 @@ Al revés: si se elimina muy poco y sabes que hay muchos fotogramas repetidos, p
 - Lo normal es que `loss` y `val_loss` bajen época a época. Al principio bajan rápido y después más despacio.
 - `perd_caja`, `perd_obj`, `perd_noobj` y `perd_clase` son los cuatro términos de la pérdida por separado (sumados dan `loss`). Sirven para ver cuál se queda atascado.
 - Al final de cada época se mide la **detección real en validación**: `val_mAP50`, `val_AP50_humo`, `val_AP50_fuego` y la precisión y el recall por imagen. En las primeras épocas es normal que salgan en 0.
-- Cada época se guarda sola en `Mi unidad/deteccion_incendios/entrenamiento/v2_zona_ignorar/` (la carpeta `DIR_EXPERIMENTO` de la sección 1 del notebook), con los archivos `ultimo.keras`, `mejor.keras` y `historial.csv`. `mejor.keras` es la época con mayor `val_mAP50`.
+- Cada época se guarda sola en `Mi unidad/deteccion_incendios/entrenamiento/v3_cinco_anclas/` (la carpeta `DIR_EXPERIMENTO` de la sección 1 del notebook), con los archivos `ultimo.keras`, `mejor.keras`, `historial.csv` y `anclas.npy` (las anclas de ese experimento). `mejor.keras` es la época con mayor `val_mAP50`.
 - Puede terminar antes de las 60 épocas: si `val_mAP50` no mejora durante 12 épocas seguidas, la parada temprana detiene el entrenamiento. Eso es normal.
 
 ### 3.5 Si Colab se desconecta
@@ -131,7 +131,7 @@ Al revés: si se elimina muy poco y sabes que hay muchos fotogramas repetidos, p
 2. Ejecuta **otra vez todas las celdas desde la primera**.
 3. En la celda de entrenamiento verás `Reanudando desde la época N`. No se pierde lo ya entrenado.
 
-> Para empezar el entrenamiento desde cero, borra en `deteccion_incendios/entrenamiento/v2_zona_ignorar/` los archivos `ultimo.keras`, `mejor.keras` e `historial.csv`, o cambia el nombre de `DIR_EXPERIMENTO` en la sección 1 del notebook para conservar el entrenamiento anterior y poder compararlos. Borra además `entrenamiento/anclas.npy` solo si quieres recalcular las anclas. **No borres `dfire_limpio.zip`**, para no repetir la limpieza.
+> Para empezar el entrenamiento desde cero, borra en `deteccion_incendios/entrenamiento/v3_cinco_anclas/` los archivos `ultimo.keras`, `mejor.keras` e `historial.csv`, o cambia el nombre de `DIR_EXPERIMENTO` en la sección 1 del notebook para conservar el entrenamiento anterior y poder compararlos. Borra además el `anclas.npy` de esa carpeta solo si quieres recalcular las anclas. Si cambias `NUM_ANCLAS` en `src/config.py`, usa siempre una carpeta nueva: un modelo solo funciona con las anclas con las que se entrenó, y el notebook se detiene con un mensaje si no coinciden. **No borres `dfire_limpio.zip`**, para no repetir la limpieza.
 >
 > Un entrenamiento hecho con una versión anterior del código (otra pérdida) no se puede reanudar: la celda avisa con un error en vez de mezclar los dos.
 
@@ -341,7 +341,7 @@ Se abre el navegador en `http://localhost:8501`.
 | La advertencia "más del 25 % por fuga" | Mira `ejemplos_fuga.jpg`. Si los pares se parecen de verdad, la advertencia es correcta y puedes seguir. Si no se parecen, baja `UMBRAL_HASH_SIMILAR` (sección 3.3). |
 | Cambié algo en `config.py` y no se aplica | Colab guarda los módulos importados en memoria: usa **Entorno de ejecución → Reiniciar sesión** y ejecuta todo otra vez. |
 | Error de memoria (OOM) | Baja `LOTE` a 8. |
-| `loss` sale `nan` | Borra `ultimo.keras`, `mejor.keras` e `historial.csv` de `entrenamiento/v2_zona_ignorar/` y baja la tasa de aprendizaje: `ent.entrenar(..., lr_max=5e-4)`. |
+| `loss` sale `nan` | Borra `ultimo.keras`, `mejor.keras` e `historial.csv` de `entrenamiento/v3_cinco_anclas/` y baja la tasa de aprendizaje: `ent.entrenar(..., lr_max=5e-4)`. |
 | La app dice que no encuentra el modelo | Copia `detector_fuego_humo.keras` y `detector_config.json` a `modelos/`. |
 | Error al cargar el `.keras` en tu PC | La versión de TensorFlow local no coincide con la de Colab. Repite el paso 6.2 con la versión de `detector_config.json`. |
 | `pip install tensorflow` falla | Asegúrate de haber creado el entorno con **Python 3.12** (`py -3.12`). |

@@ -59,7 +59,7 @@ Sobre los modelos preentrenados: **la CNN no usa ninguno**. Se construye y entre
    - el zip del dataset → `MyDrive/datasets/D-Fire.zip`
 3. Abre `notebooks/entrenamiento_detector_colab.ipynb` en Colab y elige **Entorno de ejecución → GPU T4**.
 4. Ejecuta las celdas en orden. Revisa la celda de *verificación visual*: las cajas de **fuego** deben estar sobre llamas.
-5. Entrenamiento: 60 épocas como máximo, con parada temprana. Cada época se guarda en `MyDrive/deteccion_incendios/entrenamiento/v2_zona_ignorar/`. **Si Colab se desconecta, vuelve a ejecutar las celdas y el entrenamiento continúa** desde la última época.
+5. Entrenamiento: 60 épocas como máximo, con parada temprana. Cada época se guarda en `MyDrive/deteccion_incendios/entrenamiento/v3_cinco_anclas/`. **Si Colab se desconecta, vuelve a ejecutar las celdas y el entrenamiento continúa** desde la última época.
 6. Después de entrenar, el notebook muestra en **validación** cómo cambian el recall, la precisión y las falsas alarmas por imagen con cada umbral de confianza (`explorar_umbrales`). Con eso se eligen los umbrales de humo y fuego, se escriben en `UMBRALES_CLASE` de `src/config.py` y se evalúa en el conjunto de prueba.
 7. Al final quedan en `MyDrive/deteccion_incendios/modelos/` los archivos `detector_fuego_humo.keras`, `detector_config.json` y `metricas_test.json`. Descárgalos a la carpeta `modelos/` local.
 
@@ -134,7 +134,7 @@ Los umbrales están en `src/config.py`. El notebook muestra pares de ejemplo par
 ### CNN detectora (estilo YOLO, desde cero)
 - **Entrada:** imagen 320×320 RGB. Bloques `Conv2D → BatchNorm → LeakyReLU` con conexiones residuales reducen la imagen hasta una **cuadrícula de 20×20**.
 - **Salida:** cada celda predice **3 cajas**, cada una con `[tx, ty, tw, th, objetividad, p(humo), p(fuego)]`.
-- **Anclas:** son los 3 tamaños típicos de las cajas, obtenidos con **k-means** sobre el dataset.
+- **Anclas:** son los 5 tamaños típicos de las cajas, obtenidos con **k-means** sobre el dataset (10 inicios distintos; se conserva el de mayor IoU medio). Se pasó de 3 a 5 porque con 3 el ancla más parecida solo se solapaba un 50 % en promedio con la caja real: el fuego va de unos pocos píxeles a media imagen y el humo ocupa casi toda. Cada experimento guarda sus anclas junto a sus checkpoints.
 - **Pérdida:** error de posición y de tamaño, más entropía cruzada de objetividad y de clase. Cada caja real se asigna a una sola celda y ancla; las demás cajas predichas que ya coinciden con una caja real (IoU > 0,5) **no se castigan** como "sin objeto" (zona de *ignorar*, como en YOLOv2/v3). Sin esto, el humo, que es grande y de centro ambiguo, salía con muy poca confianza.
 - **Selección del modelo:** al final de cada época se mide el mAP50 en validación y se guarda la época con el mayor valor (antes se usaba `val_loss`, que casi no cambia entre épocas).
 - **NMS (Non-Max Suppression):** elimina las cajas repetidas que se solapan.
