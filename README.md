@@ -95,6 +95,7 @@ py -3.12 -m streamlit run app.py
 - **Analizar 1 de cada N fotogramas:** en *Auto* se descartan los fotogramas que el PC no alcanza a analizar, para que el video avance a su velocidad real. Con *1* se analizan todos.
 - Cada alerta guarda una captura y una fila en `resultados/alertas/alertas.csv`, que no se borran al reiniciar la sesión.
 - La primera vez se descarga el transformer de HuggingFace (unos cientos de MB).
+- Si el asistente no puede cargarse, el detector continúa funcionando y el chat queda deshabilitado. Los errores al responder o consultar recomendaciones tampoco detienen la detección.
 
 Evaluación en varios escenarios (para la sección de resultados del reporte):
 
@@ -162,7 +163,7 @@ Igual que el ejemplo de clase, `pipeline("question-answering")`, pero con un mod
 3. **Recomendaciones automáticas:** al cambiar el evento, el transformer responde 5 preguntas: riesgo, acción inmediata, a quién llamar, qué evitar y qué hacer después.
 4. **Chat:** el usuario pregunta libremente (*"¿por qué se generó la alerta?"*, *"¿qué significa humo negro?"*).
 
-El modelo es **extractivo**: elige el fragmento del contexto que responde la pregunta, y el sistema lo completa hasta el final de la oración. Por eso nunca inventa información que no esté en la detección o en los protocolos.
+El modelo es **extractivo**: elige un fragmento del contexto y el sistema lo expande a la oración completa. Tanto el chat como las recomendaciones permiten respuestas vacías del modelo y rechazan fragmentos vacíos, inválidos o con puntaje inferior a `UMBRAL_QA`. En esos casos se indica que no se encontró una respuesta clara. Esto evita presentar esas extracciones como recomendaciones, aunque una respuesta aceptada todavía puede seleccionar información que no corresponda a la pregunta.
 
 ### Limitaciones conocidas
 - La CNN aprende desde cero con ~17 000 imágenes, así que falla más que un modelo preentrenado con millones de imágenes.

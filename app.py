@@ -92,8 +92,10 @@ except FileNotFoundError as e:
 try:
     asistente = cargar_asistente()
 except Exception as e:  # noqa: BLE001
-    st.error(f"No se pudo cargar el asistente: {e}")
-    st.stop()
+    asistente = None
+    st.warning("El asistente no está disponible. El detector sigue funcionando.")
+    with st.expander("Detalle del error del asistente"):
+        st.code(str(e))
 
 # --------------------------------------------------------------------------
 # Barra lateral
@@ -156,7 +158,8 @@ if st.sidebar.button("🗑 Reiniciar sesión"):
     ss.ultimo_frame = None
     ss.imagen_id = None
     st.rerun()
-st.sidebar.caption(f"Asistente: `{asistente.nombre_modelo}`")
+st.sidebar.caption(f"Asistente: `{asistente.nombre_modelo}`" if asistente is not None
+                   else "Asistente: no disponible")
 
 # --------------------------------------------------------------------------
 # Diseño
@@ -174,8 +177,9 @@ with col_panel:
     ph_estado = st.empty()
     with st.form("form_chat", clear_on_submit=True):
         pregunta = st.text_input("Pregunta al asistente",
-                                 placeholder="¿Por qué se generó la alerta? ¿Qué debo hacer?")
-        enviada = st.form_submit_button("Preguntar")
+                                 placeholder="¿Por qué se generó la alerta? ¿Qué debo hacer?",
+                                 disabled=asistente is None)
+        enviada = st.form_submit_button("Preguntar", disabled=asistente is None)
     contenedor_chat = st.container()
     with st.expander("Recomendaciones según la detección"):
         ph_recom = st.empty()
@@ -200,9 +204,17 @@ def render_estado(estado):
 
 def render_recomendaciones(tipo):
     with ph_recom.container():
-        for r in asistente.recomendaciones(tipo):
+        if asistente is None:
+            st.info("Las recomendaciones automáticas no están disponibles.")
+            return
+        try:
+            recommendations = asistente.recomendaciones(tipo)
+        except Exception:  # noqa: BLE001 - la inferencia no debe detener el detector
+            st.warning("No se pudieron obtener las recomendaciones. El detector sigue funcionando.")
+            return
+        for r in recommendations:
             st.markdown(f"**{r['titulo']}:** {r['respuesta']}")
-        st.caption("Respuestas extraídas por el transformer a partir del evento detectado por la CNN.")
+        st.caption("Solo se muestran extracciones aceptadas; cuando no hay una respuesta fiable se indica expresamente.")
 
 
 def render_historial():
@@ -228,15 +240,19 @@ def render_guardadas():
 # --------------------------------------------------------------------------
 # Chat (se atiende antes del bucle de video)
 # --------------------------------------------------------------------------
-if enviada and pregunta.strip():
-    with st.spinner("El asistente está pensando..."):
-        r = asistente.responder(pregunta.strip(), ss.estado, ss.monitor.eventos)
-    ss.chat.append((pregunta.strip(), r))
+if enviada and pregunta.strip() and asistente is not None:
+    try:
+        with st.spinner("El asistente está pensando..."):
+            r = asistente.responder(pregunta.strip(), ss.estado, ss.monitor.eventos)
+        ss.chat.append((pregunta.strip(), r))
+    except Exception:  # noqa: BLE001 - la inferencia no debe detener el detector
+        st.warning("No se pudo responder la pregunta. El detector sigue funcionando.")
 with contenedor_chat:
     for p, r in reversed(ss.chat[-6:]):
         st.markdown(f"🧑 **{p}**")
         st.markdown(f"🤖 {r['respuesta']}")
-        st.caption(f"Fragmento extraído: “{r['fragmento']}” · confianza del modelo: {r['score']:.2f}")
+        if r.get("accepted", True):
+            st.caption(f"Fragmento extraído: “{r['fragmento']}” · confianza del modelo: {r['score']:.2f}")
 
 render_alerta(ss.estado)
 render_estado(ss.estado)

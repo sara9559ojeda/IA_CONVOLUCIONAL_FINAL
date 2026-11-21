@@ -17,6 +17,7 @@ Cómo se conecta con la CNN:
   4. La respuesta del transformer se completa hasta el final de la oración
      para que se lea como una recomendación completa.
 """
+import math
 import re
 
 from . import config
@@ -24,6 +25,9 @@ from .eventos import resumen_para_asistente
 from .protocolos import CONOCIMIENTO_GENERAL, PREGUNTAS_RECOMENDACION, PROTOCOLOS
 
 _FIN_ORACION = re.compile(r"[.!?](\s|$)")
+NO_ANSWER = ("No encontré una respuesta clara en la información disponible. "
+             "Prueba preguntando qué se detectó, por qué se generó la alerta, "
+             "qué hacer o a quién llamar.")
 
 
 def completar_oracion(contexto, inicio, fin):
@@ -62,13 +66,22 @@ class AsistenteIncendios:
         self._cache_recomendaciones = {}
 
     def _preguntar(self, pregunta, contexto):
-        r = self.qa(question=pregunta, context=contexto)
-        if isinstance(r, list):
-            r = r[0]
+        result = self.qa(question=pregunta, context=contexto,
+                         handle_impossible_answer=True)
+        if isinstance(result, list):
+            result = result[0] if result else {}
+        fragment = result.get("answer", "")
+        score = float(result.get("score", 0.0))
+        start, end = result.get("start", 0), result.get("end", 0)
+        accepted = (bool(fragment.strip()) and math.isfinite(score)
+                    and score >= config.UMBRAL_QA
+                    and 0 <= start < end <= len(contexto)
+                    and contexto[start:end] == fragment)
         return {
-            "respuesta": completar_oracion(contexto, r["start"], r["end"]),
-            "fragmento": r["answer"],          # lo que extrajo el transformer
-            "score": float(r["score"]),
+            "respuesta": completar_oracion(contexto, start, end) if accepted else NO_ANSWER,
+            "fragmento": fragment if accepted else "",
+            "score": score,
+            "accepted": accepted,
         }
 
     def recomendaciones(self, tipo_evento):
@@ -90,9 +103,4 @@ class AsistenteIncendios:
     def responder(self, pregunta, estado, eventos):
         """Responde una pregunta libre usando la detección actual como contexto."""
         contexto = self.construir_contexto(estado, eventos)
-        r = self._preguntar(pregunta, contexto)
-        if r["score"] < config.UMBRAL_QA:
-            r["respuesta"] = ("No encontré una respuesta clara en la información disponible. "
-                              "Prueba preguntando qué se detectó, por qué se generó la alerta, "
-                              "qué hacer o a quién llamar.")
-        return r
+        return self._preguntar(pregunta, contexto)
