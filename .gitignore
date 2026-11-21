@@ -1,0 +1,8 @@
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+/drive-download-*/
+/drive-download-*.zip
+/resultados/

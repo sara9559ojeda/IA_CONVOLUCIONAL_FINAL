@@ -108,13 +108,18 @@ class DetectorFuegoHumo:
 
 
 def dibujar(frame_bgr, detecciones, estado=None):
-    """Dibuja cajas + etiquetas y, si hay alerta, un marco y un aviso de color."""
+    """Dibuja cajas, etiquetas y un marco de alerta; el aviso va en la interfaz."""
     img = frame_bgr.copy()
     alto, ancho = img.shape[:2]
     base = min(alto, ancho)
     grosor = max(2, round(base / 200))
     escala = max(0.5, base / 550)
     grosor_txt = max(1, round(base / 350))
+
+    if estado is not None and estado.nivel != "NORMAL":
+        color = config.COLORES_NIVEL[estado.nivel]
+        borde = max(6, base // 60)
+        cv2.rectangle(img, (0, 0), (ancho - 1, alto - 1), color, borde)
 
     for d in detecciones:
         x1, y1, x2, y2 = d.caja
@@ -127,14 +132,4 @@ def dibujar(frame_bgr, detecciones, estado=None):
         cv2.putText(img, d.etiqueta, (x1 + 5, y_etq + th + 4), FUENTE, escala,
                     config.COLOR_TEXTO, grosor_txt, cv2.LINE_AA)
 
-    if estado is not None and estado.nivel != "NORMAL":
-        color = config.COLORES_NIVEL[estado.nivel]
-        borde = max(6, base // 60)
-        cv2.rectangle(img, (0, 0), (ancho - 1, alto - 1), color, borde)
-        texto = f"{estado.nivel}: {estado.nombre_corto}"
-        (tw, th), lb = cv2.getTextSize(texto, FUENTE, escala * 1.1, grosor_txt + 1)
-        x0 = (ancho - tw) // 2
-        cv2.rectangle(img, (x0 - 12, borde), (x0 + tw + 12, borde + th + lb + 16), color, -1)
-        cv2.putText(img, texto, (x0, borde + th + 8), FUENTE, escala * 1.1,
-                    (255, 255, 255), grosor_txt + 1, cv2.LINE_AA)
     return img

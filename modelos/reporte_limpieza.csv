@@ -1,0 +1,22 @@
+paso,cantidad
+Imágenes encontradas en el dataset original,21527
+Imágenes corruptas o ilegibles (eliminadas),0
+Imágenes con lado menor a 64 px (eliminadas),0
+Imágenes con relación de aspecto extrema (eliminadas),0
+"Imágenes casi uniformes, p. ej. fotogramas negros (eliminadas)",1
+Imágenes sin archivo .txt (se tratan como sin objetos),0
+Cajas (líneas) en las etiquetas originales,26557
+Líneas de etiqueta mal formadas (eliminadas),0
+Cajas con clase inexistente (eliminadas),0
+Cajas que se salían de la imagen (recortadas a 0..1),379
+Cajas demasiado pequeñas para la cuadrícula (eliminadas),134
+Cajas repetidas en la misma imagen (eliminadas),0
+Imágenes duplicadas o casi idénticas (eliminadas),5925
+Imágenes de entrenamiento casi iguales a una de prueba (eliminadas),1731
+Grupos de imágenes similares usados para dividir train/val,9664
+Tamaño del grupo de imágenes similares más grande,11
+Imágenes sin objetos descartadas para balancear el entrenamiento,1046
+Imágenes finales de entrenamiento,8282
+Imágenes finales de validación,1036
+Imágenes finales de prueba,3506
+Cajas finales (todas las particiones),21479

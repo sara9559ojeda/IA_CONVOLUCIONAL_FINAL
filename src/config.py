@@ -58,13 +58,13 @@ AREA_INCENDIO = 0.10      # fuego que ocupa >= 10 % de la imagen -> incendio dec
 AREA_FUEGO_CRECIENDO = 0.04
 
 # Colores (formato BGR de OpenCV)
-COLOR_CAJA = (60, 230, 124)           # verde como en la imagen de referencia
-COLOR_TEXTO = (255, 255, 255)
+COLOR_CAJA = (161, 196, 181)         # salvia suave (BGR)
+COLOR_TEXTO = (30, 32, 33)           # carbón sobre el fondo claro de la etiqueta
 COLORES_NIVEL = {
-    "NORMAL": (60, 180, 60),
-    "PRECAUCION": (0, 215, 255),      # amarillo
-    "ALERTA": (0, 140, 255),          # naranja
-    "EMERGENCIA": (0, 0, 255),        # rojo
+    "NORMAL": (145, 174, 151),
+    "PRECAUCION": (132, 192, 223),    # arena
+    "ALERTA": (112, 158, 218),        # terracota
+    "EMERGENCIA": (104, 117, 210),    # coral
 }
 
 # --------------------------------------------------------------------------

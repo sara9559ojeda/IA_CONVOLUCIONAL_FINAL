@@ -115,7 +115,7 @@ def test_el_historial_abre_y_cierra_el_evento():
     assert [e.tipo for e in estados] == ["fuego_incipiente"] * 4 + ["sin_incidentes"]
     (evento,) = monitor.tabla_eventos()
     assert evento == {"id": 1, "tipo": "Fuego incipiente", "nivel": "ALERTA", "inicio": "t3",
-                      "duracion_s": 8, "conf_max_%": 80, "area_max_%": 2, "estado": "finalizado"}
+                      "duracion_s": 9, "conf_max_%": 80, "area_max_%": 2, "estado": "finalizado"}
 
 
 def test_un_cambio_de_tipo_cierra_el_evento_y_abre_otro():
@@ -132,6 +132,36 @@ def test_reiniciar_borra_el_historial():
     monitor.reiniciar()
     assert monitor.eventos == []
     assert monitor.actualizar([], 0, "t0").tipo == "sin_incidentes"
+
+
+def test_closing_event_uses_transition_time():
+    monitor = MonitorEventos(ventana=1, min_frames=1)
+    monitor.actualizar([fuego()], 10, "10 s")
+    monitor.actualizar([fuego()], 12, "12 s")
+    monitor.actualizar([], 15, "15 s")
+    assert monitor.eventos[0]["duracion_s"] == 5
+    assert monitor.eventos[0]["estado"] == "finalizado"
+
+
+def test_source_reset_preserves_history_without_carrying_alerts():
+    monitor = MonitorEventos()
+    alimentar(monitor, [[fuego()]] * 8, t0=100)
+    monitor.reset_source()
+    assert monitor.eventos[0]["duracion_s"] == 4
+    assert monitor.eventos[0]["estado"] == "finalizado"
+    assert not monitor.historial
+    assert monitor.actualizar([], 0.04, "nuevo video").tipo == "sin_incidentes"
+    alimentar(monitor, [[fuego()]] * 4, t0=1)
+    assert [event["id"] for event in monitor.eventos] == [1, 2]
+    assert monitor.eventos[1]["duracion_s"] == 0
+
+
+def test_type_change_records_full_duration():
+    monitor = MonitorEventos(ventana=1, min_frames=1)
+    monitor.actualizar([humo()], 10, "10 s")
+    monitor.actualizar([fuego()], 15, "15 s")
+    assert monitor.eventos[0]["duracion_s"] == 5
+    assert monitor.eventos[1]["duracion_s"] == 0
 
 
 # ==========================================================================

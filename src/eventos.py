@@ -65,9 +65,27 @@ class MonitorEventos:
         self.historial = deque(maxlen=self.ventana)
         self.eventos = []          # lista de dicts (el último puede estar abierto)
         self.tipo_actual = "sin_incidentes"
+        self.last_timestamp = None
 
     def reiniciar(self):
         self.__init__(self.ventana, self.min_frames)
+
+    def close_active_event(self, timestamp=None):
+        """Close at the supplied time, or the last frame time of this source."""
+        if self.eventos and self.eventos[-1]["_abierto"]:
+            event = self.eventos[-1]
+            end_time = self.last_timestamp if timestamp is None else timestamp
+            if end_time is not None:
+                event["duracion_s"] = max(0, int(round(end_time - event["_t0"])))
+            event["_abierto"] = False
+            event["estado"] = "finalizado"
+
+    def reset_source(self):
+        """Close the previous source and clear detections, preserving event IDs/history."""
+        self.close_active_event()
+        self.historial.clear()
+        self.tipo_actual = "sin_incidentes"
+        self.last_timestamp = None
 
     # ------------------------------------------------------------------
     def actualizar(self, detecciones, t, marca, inmediato=False):
@@ -77,6 +95,7 @@ class MonitorEventos:
         marca    : texto para mostrar el inicio del evento (hora o minuto del video).
         inmediato: True para imágenes sueltas (confirma con un solo fotograma).
         """
+        self.last_timestamp = t
         if inmediato:
             self.historial.clear()
         fuego = [d for d in detecciones if d.clase == "fuego"]
@@ -159,8 +178,7 @@ class MonitorEventos:
         abierto = self.eventos[-1] if self.eventos and self.eventos[-1]["_abierto"] else None
         if estado.tipo != self.tipo_actual:
             if abierto:
-                abierto["_abierto"] = False
-                abierto["estado"] = "finalizado"
+                self.close_active_event(t)
                 abierto = None
             if estado.tipo != "sin_incidentes":
                 abierto = {

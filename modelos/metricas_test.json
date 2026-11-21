@@ -1,0 +1,10 @@
+{
+  "AP50_humo": 0.5774855405791374,
+  "AP50_fuego": 0.5334675556762009,
+  "mAP50": 0.5554765481276691,
+  "exactitud_evento_imagen": 0.7863662293211637,
+  "precision_imagen_fuego": 0.8563327032136105,
+  "recall_imagen_fuego": 0.9457202505219207,
+  "precision_imagen_humo": 0.8394320043691972,
+  "recall_imagen_humo": 0.8426535087719298
+}

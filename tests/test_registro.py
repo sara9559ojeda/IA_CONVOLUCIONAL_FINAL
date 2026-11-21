@@ -121,5 +121,5 @@ def test_con_el_monitor_real(tmp_path):
 
     (fila,) = registro.leer()
     assert (fila["tipo"], fila["inicio"], fila["duracion_s"], fila["estado"]) == (
-        "Fuego incipiente", "t3", "8", "finalizado")
+        "Fuego incipiente", "t3", "9", "finalizado")
     assert len(list(tmp_path.glob("*.jpg"))) == 1

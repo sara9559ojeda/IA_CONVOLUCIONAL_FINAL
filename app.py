@@ -17,12 +17,25 @@ import pandas as pd
 import streamlit as st
 
 from src import config
+from src.interface import apply_theme, render_header, sidebar_brand, empty_viewer, alert_markup
 from src.eventos import EstadoAlerta, MonitorEventos, pct
 from src.registro import RegistroAlertas
 from src.video import (borrar_video_temporal, descartar_frames, frames_a_saltar,
                        guardar_video_temporal, limpiar_videos_antiguos)
 
 st.set_page_config(page_title="Detección de fuego y humo", page_icon="🔥", layout="wide")
+apply_theme()
+sidebar_brand()
+selected_section = st.sidebar.radio(
+    "Explorar proyecto", ["Probar detector", "Datos", "Modelado", "Resultados"],
+    key="project_section",
+)
+st.sidebar.divider()
+if selected_section != "Probar detector":
+    from src.project_sections import render_project_section
+    render_header(selected_section)
+    render_project_section(selected_section)
+    st.stop()
 
 
 # --------------------------------------------------------------------------
@@ -68,6 +81,7 @@ ss.setdefault("video_id", None)
 ss.setdefault("video_ruta", None)
 ss.setdefault("imagen_id", None)
 ss.setdefault("ultimo_frame", None)
+ss.setdefault("source_key", None)
 limpiar_temporales()
 
 try:
@@ -84,7 +98,6 @@ except Exception as e:  # noqa: BLE001
 # --------------------------------------------------------------------------
 # Barra lateral
 # --------------------------------------------------------------------------
-st.sidebar.title("🔥 Detección de fuego y humo")
 fuente = st.sidebar.radio("Fuente", ["Cámara web", "Archivo de video", "Imagen"])
 umbral = {   # un umbral por clase: el humo sale con menos confianza que el fuego
     "fuego": st.sidebar.slider("Umbral de confianza · fuego", 0.10, 0.90,
@@ -95,12 +108,12 @@ umbral = {   # un umbral por clase: el humo sale con menos confianza que el fueg
 
 archivo = None
 indice_camara = 0
+restart_video = False
 if fuente == "Cámara web":
     indice_camara = int(st.sidebar.number_input("Índice de cámara", 0, 5, 0))
 elif fuente == "Archivo de video":
     archivo = st.sidebar.file_uploader("Video", type=["mp4", "avi", "mov", "mkv"])
-    if st.sidebar.button("⏮ Reiniciar video"):
-        ss.frame_idx = 0
+    restart_video = st.sidebar.button("⏮ Reiniciar video")
 else:
     archivo = st.sidebar.file_uploader("Imagen", type=["jpg", "jpeg", "png", "bmp", "webp"])
 
@@ -113,12 +126,26 @@ if fuente != "Imagen":
 analizar = fuente != "Imagen" and st.sidebar.toggle("▶ Analizar", key="analizando")
 nombre_fuente = archivo.name if archivo is not None else fuente
 
+# Track uploads as well as source type/camera, even while analysis is paused.
+upload_key = (archivo.name, archivo.size, archivo.file_id) if archivo is not None else None
+source_key = (fuente, indice_camara if fuente == "Cámara web" else upload_key)
+if source_key != ss.source_key or restart_video:
+    ss.monitor.reset_source()
+    ss.registro.actualizar(ss.monitor.eventos, forzar=True)
+    ss.estado = EstadoAlerta()
+    ss.ultimo_frame = None
+    ss.imagen_id = None
+    ss.frame_idx = 0
+    ss.source_key = source_key
+
 # El video subido se copia a un archivo temporal: se borra cuando deja de usarse.
 if ss.video_ruta and (fuente != "Archivo de video" or archivo is None):
     borrar_video_temporal(ss.video_ruta)
     ss.video_ruta = ss.video_id = None
 
 if st.sidebar.button("🗑 Reiniciar sesión"):
+    ss.monitor.reset_source()
+    ss.registro.actualizar(ss.monitor.eventos, forzar=True)
     borrar_video_temporal(ss.video_ruta)
     ss.video_ruta = ss.video_id = None
     ss.monitor.reiniciar()
@@ -134,38 +161,31 @@ st.sidebar.caption(f"Asistente: `{asistente.nombre_modelo}`")
 # --------------------------------------------------------------------------
 # Diseño
 # --------------------------------------------------------------------------
-col_video, col_panel = st.columns([3, 2])
+render_header()
+col_video, col_panel = st.columns([1.8, 1], gap="large")
 with col_video:
+    st.subheader("Observación")
     ph_alerta = st.empty()
     ph_frame = st.empty()
+    ph_frame.markdown(empty_viewer(), unsafe_allow_html=True)
     ph_info = st.empty()
 with col_panel:
-    st.subheader("🤖 Asistente")
+    st.subheader("Asistente")
     ph_estado = st.empty()
-    st.markdown("**Recomendaciones según la detección**")
-    ph_recom = st.empty()
     with st.form("form_chat", clear_on_submit=True):
         pregunta = st.text_input("Pregunta al asistente",
                                  placeholder="¿Por qué se generó la alerta? ¿Qué debo hacer?")
         enviada = st.form_submit_button("Preguntar")
     contenedor_chat = st.container()
+    with st.expander("Recomendaciones según la detección"):
+        ph_recom = st.empty()
     st.markdown("**Historial de eventos**")
     ph_historial = st.empty()
     ph_guardadas = st.empty()
 
 
 def render_alerta(estado):
-    estilos = {"PRECAUCION": "#f9c513", "ALERTA": "#ff8c00", "EMERGENCIA": "#e02424"}
-    if estado.nivel == "NORMAL":
-        ph_alerta.markdown(
-            "<div style='padding:10px;border-radius:8px;background:#1f7a3a;color:white;"
-            "font-weight:600;text-align:center'>✅ NORMAL · Sin fuego ni humo</div>",
-            unsafe_allow_html=True)
-    else:
-        ph_alerta.markdown(
-            f"<div style='padding:14px;border-radius:8px;background:{estilos[estado.nivel]};"
-            f"color:white;font-size:1.3rem;font-weight:700;text-align:center'>"
-            f"🚨 {estado.nivel} · {estado.nombre}</div>", unsafe_allow_html=True)
+    ph_alerta.markdown(alert_markup(estado.nivel, estado.nombre), unsafe_allow_html=True)
 
 
 def render_estado(estado):
@@ -243,7 +263,7 @@ def procesar_frame(frame, t, marca, inmediato=False):
 # --------------------------------------------------------------------------
 if fuente == "Imagen":
     if archivo is not None:
-        id_archivo = (archivo.name, archivo.size)
+        id_archivo = (upload_key, tuple(sorted(umbral.items())))
         if ss.imagen_id != id_archivo:
             frame = cv2.imdecode(np.frombuffer(archivo.getvalue(), np.uint8), cv2.IMREAD_COLOR)
             estado, anotado, dets = procesar_frame(frame, time.time(),
@@ -261,7 +281,7 @@ elif analizar:
         if archivo is None:
             ph_info.info("Sube un video en la barra lateral.")
             st.stop()
-        id_archivo = (archivo.name, archivo.size)
+        id_archivo = upload_key
         video_nuevo = ss.video_id != id_archivo
         if video_nuevo or not (ss.video_ruta and os.path.exists(ss.video_ruta)):
             borrar_video_temporal(ss.video_ruta)        # el del video anterior
