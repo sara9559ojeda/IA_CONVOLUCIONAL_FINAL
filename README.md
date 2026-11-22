@@ -159,11 +159,15 @@ D-Fire solo etiqueta "humo". El subtipo se obtiene **analizando el color (HSV) d
 ### Asistente (transformer)
 Igual que el ejemplo de clase, `pipeline("question-answering")`, pero con un modelo en español (`config.MODELOS_QA`):
 1. La detección de la CNN se convierte en texto. Ejemplo: *"La alerta se generó porque se detectó fuego en 6 de los últimos 8 fotogramas con una confianza media de 81 por ciento..."*.
-2. Ese texto se une con el **protocolo del evento detectado** (`src/protocolos.py`) → **contexto**.
+2. El asistente distingue una fuente sin analizar, una detección pendiente y una observación sin incidentes. En video usa el mínimo del monitor y en imágenes individuales basta un fotograma. El protocolo se incorpora cuando corresponde al estado observado.
 3. **Recomendaciones automáticas:** al cambiar el evento, el transformer responde 5 preguntas: riesgo, acción inmediata, a quién llamar, qué evitar y qué hacer después.
-4. **Chat:** el usuario pregunta libremente (*"¿por qué se generó la alerta?"*, *"¿qué significa humo negro?"*).
+4. **Chat:** se puede preguntar *«¿Por qué no hay alerta?»*, *«¿Cuánto duró el evento anterior?»* o *«¿Cuándo comenzó el evento 2?»*. «Anterior» consulta el último evento finalizado. Las respuestas extraídas muestran el fragmento y su fuente. Antes del primer fotograma, una consulta sobre la detección actual recibe el estado de la fuente directamente.
 
 El modelo es **extractivo**: elige un fragmento del contexto y el sistema lo expande a la oración completa. Tanto el chat como las recomendaciones permiten respuestas vacías del modelo y rechazan fragmentos vacíos, inválidos o con puntaje inferior a `UMBRAL_QA`. En esos casos se indica que no se encontró una respuesta clara. Esto evita presentar esas extracciones como recomendaciones, aunque una respuesta aceptada todavía puede seleccionar información que no corresponda a la pregunta.
+
+Para evaluar el asistente desde la raíz del proyecto con el entorno activado, ejecuta `python evaluar_asistente.py`. Usa el modelo principal configurado y muestra la respuesta esperada y la obtenida en cada fallo. Evalúa las 25 tarjetas automáticas, siete consultas de estado, historial o reformulaciones y cuatro preguntas sin evidencia. El primer grupo exige la oración completa del protocolo. Las consultas de chat se califican por el dato esperado o la abstención. El aviso inicial sin fotogramas procede del monitor. Puedes elegir el modelo de respaldo con `--modelo deepset/xlm-roberta-base-squad2`.
+
+Cada ejecución guarda las métricas de la sesión de evaluación en `modelos/metricas_asistente.json`. En la app, **Resultados → Asistente (transformer)** muestra accuracy, precision, recall y F1 junto al modelo, el umbral y el número de preguntas. Accuracy incluye las abstenciones correctas. Precision y recall comparan las respuestas correctas con las preguntas contestadas y con las que tenían respuesta, respectivamente.
 
 ### Limitaciones conocidas
 - La CNN aprende desde cero con ~17 000 imágenes, así que falla más que un modelo preentrenado con millones de imágenes.

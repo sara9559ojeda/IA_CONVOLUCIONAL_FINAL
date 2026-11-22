@@ -1,0 +1,13 @@
+{
+  "modelo": "mrm8488/distill-bert-base-spanish-wwm-cased-finetuned-spa-squad2-es",
+  "umbral": 0.01,
+  "casos": 36,
+  "con_respuesta": 32,
+  "contestadas": 25,
+  "respuestas_correctas": 25,
+  "abstenciones_correctas": 4,
+  "accuracy": 0.8055555555555556,
+  "precision": 1.0,
+  "recall": 0.78125,
+  "f1": 0.8771929824561403
+}

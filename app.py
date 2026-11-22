@@ -18,7 +18,7 @@ import streamlit as st
 
 from src import config
 from src.interface import apply_theme, render_header, sidebar_brand, empty_viewer, alert_markup
-from src.eventos import EstadoAlerta, MonitorEventos, pct
+from src.eventos import EstadoAlerta, MonitorEventos, pct, resumen_actual
 from src.registro import RegistroAlertas
 from src.video import (borrar_video_temporal, descartar_frames, frames_a_saltar,
                        guardar_video_temporal, limpiar_videos_antiguos)
@@ -32,8 +32,13 @@ selected_section = st.sidebar.radio(
 )
 st.sidebar.divider()
 if selected_section != "Probar detector":
-    from src.project_sections import render_project_section
+    from src.project_sections import render_assistant_results, render_project_section
     render_header(selected_section)
+    if selected_section == "Resultados":
+        modelo = st.radio("Evaluación", ["Detector (CNN)", "Asistente (transformer)"], horizontal=True)
+        if modelo == "Asistente (transformer)":
+            render_assistant_results()
+            st.stop()
     render_project_section(selected_section)
     st.stop()
 
@@ -200,12 +205,20 @@ def render_estado(estado):
         c3.metric("Tendencia", estado.tendencia)
         if estado.tipo != "sin_incidentes":
             st.caption(f"Motivo de la alerta: {estado.razon}.")
+        elif estado.estado_asistente in ("pendiente", "sin_analizar"):
+            st.caption(resumen_actual(estado))
 
 
 def render_recomendaciones(tipo):
     with ph_recom.container():
         if asistente is None:
             st.info("Las recomendaciones automáticas no están disponibles.")
+            return
+        if tipo == "sin_analizar":
+            st.info("Las recomendaciones aparecerán al analizar la primera imagen o fotograma.")
+            return
+        if tipo == "pendiente":
+            st.info("Hay detecciones pendientes de confirmación. Aún no se ha asignado un protocolo.")
             return
         try:
             recommendations = asistente.recomendaciones(tipo)
@@ -252,11 +265,12 @@ with contenedor_chat:
         st.markdown(f"🧑 **{p}**")
         st.markdown(f"🤖 {r['respuesta']}")
         if r.get("accepted", True):
-            st.caption(f"Fragmento extraído: “{r['fragmento']}” · confianza del modelo: {r['score']:.2f}")
+            fuente = f"Fuente: {r['fuente']} · " if r.get("fuente") else ""
+            st.caption(f"{fuente}Fragmento extraído: “{r['fragmento']}” · puntaje del modelo: {r['score']:.2f}")
 
 render_alerta(ss.estado)
 render_estado(ss.estado)
-render_recomendaciones(ss.estado.tipo)
+render_recomendaciones(ss.estado.estado_asistente)
 render_historial()
 render_guardadas()
 if ss.ultimo_frame is not None:
@@ -321,7 +335,7 @@ elif analizar:
         ph_info.error("No se pudo abrir la fuente de video.")
         st.stop()
 
-    tipo_recomendado = ss.estado.tipo
+    tipo_recomendado = ss.estado.estado_asistente
     n, t_ini = 0, time.time()
     descartados, t_ciclo = 0, time.perf_counter()
     try:
@@ -348,10 +362,10 @@ elif analizar:
                 ph_info.caption(f"{n / (time.time() - t_ini):.1f} fotogramas analizados por segundo "
                                 f"(1 de cada {descartados + 1}) · "
                                 f"{len(dets)} detecciones en este fotograma")
-            if estado.tipo != tipo_recomendado:     # el transformer solo se consulta al cambiar el evento
+            if estado.estado_asistente != tipo_recomendado:
                 render_alerta(estado)
-                render_recomendaciones(estado.tipo)
-                tipo_recomendado = estado.tipo
+                render_recomendaciones(estado.estado_asistente)
+                tipo_recomendado = estado.estado_asistente
 
             # Salto de fotogramas: en CPU analizar cada uno deja el video en cámara lenta.
             ahora = time.perf_counter()

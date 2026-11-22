@@ -81,7 +81,6 @@ CONOCIMIENTO_GENERAL = (
     "Un extintor de tipo ABC sirve para fuegos de sólidos, líquidos inflamables y equipos eléctricos. "
     "Para protegerse del humo se debe caminar agachado porque el aire más limpio está cerca del piso. "
     "El sistema usa una red neuronal convolucional entrenada desde cero que detecta fuego y humo en cada fotograma. "
-    f"Una detección se confirma cuando aparece en al menos 4 de los últimos 8 fotogramas, lo que reduce las falsas alarmas. "
     "El color del humo se determina analizando el brillo y la saturación de los píxeles dentro de la caja detectada. "
     "Las falsas alarmas pueden deberse a atardeceres, luces rojas o anaranjadas, niebla o nubes."
 )

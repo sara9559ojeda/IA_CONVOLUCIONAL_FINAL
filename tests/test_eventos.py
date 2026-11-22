@@ -168,9 +168,21 @@ def test_type_change_records_full_duration():
 # Texto que recibe el asistente
 # ==========================================================================
 def test_resumen_sin_incidentes():
-    texto = resumen_para_asistente(EstadoAlerta(), [])
+    inicial = resumen_para_asistente(EstadoAlerta(), [])
+    assert "no se ha analizado" in inicial
+    estado = MonitorEventos().actualizar([], 0, "0 s")
+    texto = resumen_para_asistente(estado, [])
     assert "no detecta fuego ni humo" in texto
     assert "0 eventos" in texto
+
+
+def test_resumen_cuenta_cada_deteccion_pendiente_con_el_minimo_del_monitor():
+    monitor = MonitorEventos(ventana=5, min_frames=3)
+    estado = alimentar(monitor, [[humo(), fuego()], [humo()]])[-1]
+    texto = resumen_para_asistente(estado, [])
+    assert "humo en 2 fotogramas y se requieren 3" in texto
+    assert "fuego en 1 fotograma y se requieren 3" in texto
+    assert "no detecta" not in texto
 
 
 def test_resumen_describe_la_deteccion():

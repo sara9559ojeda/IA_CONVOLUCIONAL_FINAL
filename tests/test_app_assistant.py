@@ -49,11 +49,16 @@ def test_assistant_failure_does_not_stop_detection(monkeypatch, tmp_path, failur
             app.run(timeout=20)
             assert not app.exception
             assert any("No se pudo responder" in warning.value for warning in app.warning)
-        else:
+        elif failure == "load":
             assert app.warning
+        else:
+            assistant.recomendaciones.assert_not_called()
         app.toggle(key="analizando").set_value(True).run(timeout=20)
         assert not app.exception
         detector.detectar.assert_called_once()
         capture.release.assert_called_once()
+        if failure == "recommendations":
+            assistant.recomendaciones.assert_called_once_with("sin_incidentes")
+            assert any("No se pudieron obtener" in warning.value for warning in app.warning)
     finally:
         st.cache_resource.clear()

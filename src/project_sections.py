@@ -269,5 +269,30 @@ def render_results():
              "tiempo hasta la alerta ni falsas alarmas acumuladas en videos.")
 
 
+def render_assistant_results():
+    st.subheader("Evaluación del asistente en español")
+    report = read_json("metricas_asistente.json")
+    if report is None:
+        st.code("python evaluar_asistente.py", language="bash")
+        return
+    st.caption(f"Modelo evaluado · {report['modelo']}  |  Umbral de extracción · {report['umbral']}")
+    total = report["casos"]
+    correct = report["respuestas_correctas"]
+    abstained = report["abstenciones_correctas"]
+    st.write(f"El asistente resolvió **{correct + abstained} de {total} casos**. "
+             f"Dio {correct} respuestas correctas y se abstuvo correctamente en {abstained} casos.")
+    descriptions = [
+        ("Accuracy", "accuracy", "Proporción de casos resueltos, incluidas las abstenciones correctas."),
+        ("Precision", "precision", "Proporción de las preguntas contestadas cuya respuesta fue correcta."),
+        ("Recall", "recall", "Proporción de las preguntas con respuesta esperada que el asistente contestó correctamente."),
+        ("F1", "f1", "Media armónica de precision y recall para las respuestas del asistente."),
+    ]
+    for column, (label, key, help_text) in zip(st.columns(4), descriptions):
+        value = report[key]
+        column.metric(label, f"{value:.2%}" if value is not None else "—", help=help_text)
+    st.caption(f"{report['contestadas']} preguntas contestadas · {report['con_respuesta']} con respuesta esperada · "
+               f"{total - report['con_respuesta']} sin evidencia. La evaluación incluye el aviso inicial del monitor.")
+
+
 def render_project_section(section):
     {"Datos": render_data, "Modelado": render_modeling, "Resultados": render_results}[section]()

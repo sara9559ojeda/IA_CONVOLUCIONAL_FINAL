@@ -44,6 +44,18 @@ class EstadoAlerta:
     num_humo: int = 0
     razon: str = "no se detecta fuego ni humo"
     evento: dict = field(default_factory=dict)
+    minimo_confirmacion: int = config.MIN_FRAMES_CONFIRMAR
+    ventana_configurada: int = config.VENTANA_FRAMES
+    imagen_individual: bool = False
+
+    @property
+    def estado_asistente(self):
+        if self.tipo == "sin_incidentes":
+            if not self.ventana:
+                return "sin_analizar"
+            if self.frames_humo or self.frames_fuego:
+                return "pendiente"
+        return self.tipo
 
     @property
     def nombre(self):
@@ -124,6 +136,8 @@ class MonitorEventos:
             area_fuego=media(con_fuego, "area_fuego"), area_humo=media(con_humo, "area_humo"),
             frames_fuego=len(con_fuego), frames_humo=len(con_humo), ventana=len(h),
             num_fuego=len(fuego), num_humo=len(humo),
+            minimo_confirmacion=minimo, ventana_configurada=self.ventana,
+            imagen_individual=inmediato,
         )
         clave_area = "area_fuego" if fuego_ok else "area_humo"
         estado.tendencia = self._tendencia([r[clave_area] for r in h])
@@ -202,13 +216,23 @@ class MonitorEventos:
         return [{k: v for k, v in e.items() if not k.startswith("_")} for e in self.eventos]
 
 
-def resumen_para_asistente(estado, eventos):
+def resumen_actual(estado):
     """Convierte la predicción de la CNN en texto: es el CONTEXTO del transformer.
 
     Se usan oraciones completas y porcentajes en palabras ("82 por ciento")
     para que el modelo de pregunta-respuesta encuentre respuestas limpias.
     """
-    if estado.tipo == "sin_incidentes":
+    if estado.estado_asistente == "sin_analizar":
+        return "Todavía no se ha analizado ningún fotograma de esta fuente."
+    if estado.estado_asistente == "pendiente":
+        partes = []
+        for clase, cantidad in (("humo", estado.frames_humo), ("fuego", estado.frames_fuego)):
+            if cantidad:
+                unidad = "fotograma" if cantidad == 1 else "fotogramas"
+                partes.append(f"No hay alerta porque se observó {clase} "
+                              f"en {cantidad} {unidad} y se requieren {estado.minimo_confirmacion} "
+                              "dentro de la ventana de confirmación.")
+    elif estado.tipo == "sin_incidentes":
         partes = ["Actualmente el sistema no detecta fuego ni humo.",
                   "El nivel de alerta actual es NORMAL y no se generó ninguna alerta."]
     else:
@@ -225,9 +249,23 @@ def resumen_para_asistente(estado, eventos):
         if estado.evento:
             partes.append(f"El evento actual comenzó en {estado.evento['inicio']} y lleva "
                           f"{estado.evento['duracion_s']} segundos.")
-    cerrados = [e for e in eventos if not e.get("_abierto")]
-    partes.append(f"Durante la sesión se han registrado {len(eventos)} eventos en total.")
-    for e in cerrados[-5:]:
-        partes.append(f"El evento número {e['id']} fue {e['tipo']} con nivel {e['nivel']}, "
-                      f"comenzó en {e['inicio']} y duró {e['duracion_s']} segundos.")
     return " ".join(partes)
+
+
+def texto_evento(evento):
+    duracion = "lleva" if evento.get("_abierto") else "duró"
+    return (f"El evento número {evento['id']} fue {evento['tipo']} con nivel {evento['nivel']}, "
+            f"comenzó en {evento['inicio']} y {duracion} {evento['duracion_s']} segundos.")
+
+
+def bloques_sesion(estado, eventos, incluir_cerrados=True):
+    bloques = [("Estado actual", resumen_actual(estado)),
+               ("Historial de la sesión", f"Durante la sesión se han registrado {len(eventos)} eventos en total.")]
+    if incluir_cerrados:
+        cerrados = [e for e in eventos if not e.get("_abierto")]
+        bloques.extend((f"Evento {e['id']} · finalizado", texto_evento(e)) for e in cerrados[-5:])
+    return bloques
+
+
+def resumen_para_asistente(estado, eventos):
+    return " ".join(texto for _, texto in bloques_sesion(estado, eventos))
