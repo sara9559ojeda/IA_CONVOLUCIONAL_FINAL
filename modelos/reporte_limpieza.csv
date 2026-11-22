@@ -12,11 +12,11 @@ Cajas que se salían de la imagen (recortadas a 0..1),379
 Cajas demasiado pequeñas para la cuadrícula (eliminadas),134
 Cajas repetidas en la misma imagen (eliminadas),0
 Imágenes duplicadas o casi idénticas (eliminadas),5925
-Imágenes de entrenamiento casi iguales a una de prueba (eliminadas),1731
-Grupos de imágenes similares usados para dividir train/val,9664
-Tamaño del grupo de imágenes similares más grande,11
-Imágenes sin objetos descartadas para balancear el entrenamiento,1046
-Imágenes finales de entrenamiento,8282
-Imágenes finales de validación,1036
-Imágenes finales de prueba,3506
-Cajas finales (todas las particiones),21479
+Pares similares entre particiones (debe ser cero),0
+Grupos de imágenes similares usados para dividir train/val/test,12203
+Tamaño del grupo de imágenes similares más grande,144
+Imágenes sin objetos descartadas para balancear el entrenamiento,0
+Imágenes finales de entrenamiento,10921
+Imágenes finales de validación,2340
+Imágenes finales de prueba,2340
+Cajas finales (todas las particiones),22873

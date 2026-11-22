@@ -1,10 +1,53 @@
 {
-  "AP50_humo": 0.5774855405791374,
-  "AP50_fuego": 0.5334675556762009,
-  "mAP50": 0.5554765481276691,
-  "exactitud_evento_imagen": 0.7863662293211637,
-  "precision_imagen_fuego": 0.8563327032136105,
-  "recall_imagen_fuego": 0.9457202505219207,
-  "precision_imagen_humo": 0.8394320043691972,
-  "recall_imagen_humo": 0.8426535087719298
+  "AP50_humo": 0.6417742232533304,
+  "AP50_fuego": 0.48827827126633305,
+  "mAP50": 0.5650262472598317,
+  "exactitud_evento_imagen": 0.8222222222222222,
+  "precision_imagen_fuego": 0.8755186721991701,
+  "recall_imagen_fuego": 0.9569160997732427,
+  "precision_imagen_humo": 0.918552036199095,
+  "recall_imagen_humo": 0.8762589928057554,
+  "f1_imagen_humo": 0.8969072164948454,
+  "f1_imagen_fuego": 0.914409534127844,
+  "perd_caja": 22.552525463674822,
+  "perd_obj": 3.674384552367135,
+  "perd_noobj": 1.2959690319294603,
+  "perd_clase": 0.38427765765303556,
+  "loss": 27.907156705624452,
+  "matriz_confusion": [
+    [
+      729,
+      50,
+      44,
+      7
+    ],
+    [
+      103,
+      456,
+      5,
+      64
+    ],
+    [
+      3,
+      4,
+      66,
+      47
+    ],
+    [
+      6,
+      25,
+      58,
+      673
+    ]
+  ],
+  "categorias_matriz": [
+    "normal",
+    "solo humo",
+    "solo fuego",
+    "fuego y humo"
+  ],
+  "umbrales_imagen": {
+    "humo": 0.20000000298023224,
+    "fuego": 0.3499999940395355
+  }
 }
