@@ -59,7 +59,7 @@ Sobre los modelos preentrenados: **la CNN no usa ninguno**. Se construye y entre
    - el zip del dataset → `MyDrive/datasets/D-Fire.zip`
 3. Abre `notebooks/entrenamiento_detector_colab.ipynb` en Colab y elige **Entorno de ejecución → GPU T4**.
 4. Ejecuta las celdas en orden. Revisa la celda de *verificación visual*: las cajas de **fuego** deben estar sobre llamas.
-5. Entrenamiento: 60 épocas como máximo, con parada temprana. Cada época se guarda en `MyDrive/deteccion_incendios/entrenamiento/v2_zona_ignorar/`. **Si Colab se desconecta, vuelve a ejecutar las celdas y el entrenamiento continúa** desde la última época.
+5. Entrenamiento: 60 épocas como máximo, con parada temprana. Cada época se guarda en `MyDrive/deteccion_incendios/entrenamiento/v3_split_70_15_15/`. **Si Colab se desconecta, vuelve a ejecutar las celdas y el entrenamiento continúa** desde la última época.
 6. Después de entrenar, el notebook muestra en **validación** cómo cambian el recall, la precisión y las falsas alarmas por imagen con cada umbral de confianza (`explorar_umbrales`). Con eso se eligen los umbrales de humo y fuego, se escriben en `UMBRALES_CLASE` de `src/config.py` y se evalúa en el conjunto de prueba.
 7. Al final quedan en `MyDrive/deteccion_incendios/modelos/` los archivos `detector_fuego_humo.keras`, `detector_config.json` y `metricas_test.json`. Descárgalos a la carpeta `modelos/` local.
 
@@ -125,9 +125,9 @@ Escenarios sugeridos: interior (cocina, bodega), exterior (bosque, pastizal), de
 | Imágenes | Se eliminan las corruptas, las de menos de 64 px, las de aspecto mayor a 4:1 y las casi uniformes | Una imagen corrupta detiene `tf.data` a mitad de una época |
 | Etiquetas | Se eliminan las líneas mal formadas, las clases inexistentes, las cajas de menos de 3 px a 320×320 y las cajas repetidas (IoU > 0,9); las cajas que salen del borde se recortan | Las etiquetas erróneas meten ruido en la pérdida |
 | Duplicados | Se calcula un hash perceptual (dHash de 256 bits) y se agrupan las imágenes con 8 bits distintos o menos; se conserva una por grupo | D-Fire tiene muchos fotogramas consecutivos de video |
-| Fuga | Se eliminan de train/val las imágenes a 24 bits o menos de alguna imagen de prueba | Sin esto el mAP de prueba sale inflado |
-| División | Train y val se separan por **grupos** de imágenes similares | La validación mide generalización real, no memoria |
-| Balance | Las imágenes sin objetos se limitan al 30 % del entrenamiento (val y test no se tocan) | Siguen sirviendo contra falsas alarmas, pero las épocas son más cortas |
+| Fuga | Se agrupan imágenes similares globalmente, incluidas conexiones transitivas | Se verifica cero pares similares detectados entre particiones |
+| División | Train/val/test con objetivo 70/15/15 por grupos completos | Los grupos no se reparten entre conjuntos |
+| Negativas | Se conservan sin recortes posteriores | No se alteran las proporciones después de dividir |
 | Rendimiento | Todo se re-codifica a 384×384 una sola vez y se guarda en Drive | La CPU de Colab deja de frenar a la GPU |
 
 Los umbrales están en `src/config.py`. El notebook muestra pares de ejemplo para verificarlos y deja un `reporte_limpieza.csv` con los conteos de cada paso.
@@ -174,3 +174,5 @@ Cada ejecución guarda las métricas de la sesión de evaluación en `modelos/me
 - Puede confundir el fuego con atardeceres, luces anaranjadas o reflejos, y el humo con niebla o nubes.
 - La regla de color para el humo negro o blanco puede fallar de noche o a contraluz.
 - El asistente solo responde con lo que hay en su contexto. No razona fuera de los protocolos.
+
+Para la nueva partición, subir `src/` actualizado y el notebook a Drive; reiniciar la sesión de Colab y ejecutar desde el inicio con el D-Fire original. El ZIP `dfire_limpio_70_15_15.zip`, los checkpoints y las anclas de `v3_split_70_15_15` se crean nuevos. Las métricas anteriores no describen este entrenamiento. El manifiesto guarda grupos, semilla, proporciones reales y la comprobación de pares similares entre particiones. Los porcentajes pueden variar ligeramente por grupos indivisibles.

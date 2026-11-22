@@ -447,6 +447,29 @@ def evaluar(modelo, split, anclas, clases, tam, umbral=0.35, iou_umbral=0.5):
     todas = [decodificar(p, anclas, umbral=0.01) for p in preds]
     resultados, matriz = calcular_metricas(todas, _cajas_reales(split), clases, umbrales,
                                            iou_umbral)
+    for nombre in clases:
+        precision = resultados[f"precision_imagen_{nombre}"]
+        recall = resultados[f"recall_imagen_{nombre}"]
+        resultados[f"f1_imagen_{nombre}"] = (
+            2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        )
+
+    # Usa las mismas predicciones para medir la pérdida media por imagen de prueba.
+    cajas = tf.ragged.constant(split["cajas"], dtype=tf.float32, ragged_rank=1, inner_shape=(5,))
+    objetivos = tf.data.Dataset.from_tensor_slices(cajas).map(
+        lambda c: codificar_objetivos(c[:100], anclas, tam // 16, len(clases))
+    ).batch(16)
+    terminos = metricas_perdida(anclas)
+    sumas = {f.__name__: 0.0 for f in terminos}
+    inicio = 0
+    for etiquetas in objetivos:
+        cantidad = len(etiquetas)
+        lote = preds[inicio:inicio + cantidad]
+        for f in terminos:
+            sumas[f.__name__] += cantidad * float(f(etiquetas, lote))
+        inicio += cantidad
+    resultados.update({nombre: suma / len(preds) for nombre, suma in sumas.items()})
+    resultados["loss"] = sum(resultados[f.__name__] for f in terminos)
 
     fig, eje = plt.subplots(figsize=(6, 5))
     eje.imshow(matriz, cmap="Oranges")
@@ -464,6 +487,9 @@ def evaluar(modelo, split, anclas, clases, tam, umbral=0.35, iou_umbral=0.5):
 
     for k, v in resultados.items():
         print(f"{k:28s} {v:.3f}")
+    resultados["matriz_confusion"] = matriz.tolist()
+    resultados["categorias_matriz"] = NOMBRES_EVENTO
+    resultados["umbrales_imagen"] = dict(zip(clases, map(float, umbrales)))
     return resultados, preds
 
 

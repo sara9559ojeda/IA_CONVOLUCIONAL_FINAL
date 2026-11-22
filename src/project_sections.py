@@ -140,10 +140,11 @@ def render_class_results(metrics, class_name):
     recall = metrics[f"recall_imagen_{class_name}"]
     ap = metrics[f"AP50_{class_name}"]
     st.subheader(class_name.capitalize())
-    columns = st.columns(3)
-    columns[0].metric("AP50", f"{ap:.2%}")
-    columns[1].metric("Precisión por imagen", f"{precision:.2%}")
-    columns[2].metric("Recall por imagen", f"{recall:.2%}")
+    left, right = st.columns(2)
+    left.metric("AP50", f"{ap:.2%}")
+    right.metric("F1-score por imagen", f'{metrics[f"f1_imagen_{class_name}"]:.2%}')
+    left.metric("Precisión por imagen", f"{precision:.2%}")
+    right.metric("Recall por imagen", f"{recall:.2%}")
     st.markdown(f"**Presencia de {class_name}.** De cada 100 imágenes donde el modelo anuncia "
                 f"{class_name}, aproximadamente **{precision * 100:.1f} realmente lo contienen**. "
                 f"De cada 100 imágenes que sí contienen {class_name}, reconoce aproximadamente "
@@ -173,7 +174,12 @@ def render_results():
             st.caption(f"El reporte de limpieza registra {int(test_counts.iloc[0]):,} imágenes de prueba. "
                        "Los valores de esta página se leen de metricas_test.json; no se recalculan al usar el detector.")
     st.divider()
-    section_intro("02", "Resultados de fuego y humo", "Las mismas tres métricas para comparar ambas clases.")
+    section_intro("02", "Resultados de fuego y humo", "Localización y presencia de cada clase en prueba.")
+    for name in ("fuego", "humo"):
+        if f"f1_imagen_{name}" not in metrics:
+            precision = metrics[f"precision_imagen_{name}"]
+            recall = metrics[f"recall_imagen_{name}"]
+            metrics[f"f1_imagen_{name}"] = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     fire_column, smoke_column = st.columns(2, gap="large")
     with fire_column:
         render_class_results(metrics, "fuego")
@@ -184,17 +190,49 @@ def render_results():
         "AP50": f'{metrics[f"AP50_{name}"]:.2%}',
         "Precisión por imagen": f'{metrics[f"precision_imagen_{name}"]:.2%}',
         "Recall por imagen": f'{metrics[f"recall_imagen_{name}"]:.2%}',
+        "F1-score por imagen": f'{metrics[f"f1_imagen_{name}"]:.2%}',
     } for name in ("fuego", "humo")]
     st.markdown("**Comparación de los resultados de prueba**")
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     comparison = pd.DataFrame({
         name.capitalize(): [metrics[f"AP50_{name}"] * 100,
                             metrics[f"precision_imagen_{name}"] * 100,
-                            metrics[f"recall_imagen_{name}"] * 100]
+                            metrics[f"recall_imagen_{name}"] * 100,
+                            metrics[f"f1_imagen_{name}"] * 100]
         for name in ("fuego", "humo")
-    }, index=pd.Index(["AP50", "Precisión por imagen", "Recall por imagen"], name="Métrica"))
+    }, index=pd.Index(["AP50", "Precisión por imagen", "Recall por imagen", "F1-score por imagen"], name="Métrica"))
     st.bar_chart(comparison, color=["#d49a7f", "#b5c4a1"], stack=False,
                  y_label="Resultado (%)", height=300)
+    st.subheader("Matriz de confusión por imagen")
+    if "matriz_confusion" in metrics:
+        categories = metrics["categorias_matriz"]
+        matrix = pd.DataFrame(metrics["matriz_confusion"],
+                              index=pd.Index(categories, name="Evento real"), columns=categories)
+        st.caption("Filas = evento real. Columnas = evento predicho. Cada celda cuenta imágenes de prueba.")
+        st.dataframe(matrix, width="stretch")
+        if "umbrales_imagen" in metrics:
+            thresholds = ", ".join(f"{name} {value:.2f}" for name, value in metrics["umbrales_imagen"].items())
+            st.caption(f"Umbrales de confianza usados en prueba: {thresholds}.")
+    else:
+        st.info("Esta exportación no incluye la matriz. La evaluación del notebook la guarda en metricas_test.json.")
+
+    st.subheader("Loss (pérdida)")
+    if "loss" in metrics:
+        st.metric("Pérdida media por imagen de prueba", f'{metrics["loss"]:.4f}')
+        components = {"Caja": "perd_caja", "Objeto": "perd_obj", "Fondo": "perd_noobj", "Clase": "perd_clase"}
+        st.dataframe(pd.DataFrame([{label: metrics[key] for label, key in components.items()}]),
+                     hide_index=True, width="stretch")
+    history_path = MODEL_DIRECTORY / "historial.csv"
+    if history_path.is_file():
+        history = pd.read_csv(history_path)
+        history["Época"] = history["epoch"] + 1
+        st.line_chart(history.set_index("Época")[["loss", "val_loss"]].rename(
+            columns={"loss": "Entrenamiento", "val_loss": "Validación"}))
+        with st.expander("Pérdida y componentes por época"):
+            fields = [c for c in history if c in ("loss", "val_loss") or c.startswith(("perd_", "val_perd_"))]
+            st.dataframe(history[["Época", *fields]], hide_index=True, width="stretch")
+    else:
+        st.caption("Las curvas de pérdida de entrenamiento y validación requieren el historial por época del entrenamiento original.")
     st.divider()
     section_intro("03", "Qué mide cada métrica", "Localizar una caja y reconocer la presencia de una clase son tareas diferentes.")
     localization, presence = st.columns(2, gap="large")
@@ -220,9 +258,12 @@ def render_results():
         st.markdown("**Exactitud del evento por imagen**")
         st.write("Proporción de imágenes cuya categoría completa coincide con la real. "
                  "Si una imagen contiene fuego y humo, reconocer únicamente fuego no basta para acertar el evento completo.")
+        st.markdown("**F1-score por imagen**")
+        st.write("Media armónica de la precisión y el recall de una clase. Baja cuando se pierden casos reales o aumentan las falsas alarmas.")
     with st.expander("Fórmulas y criterios para explicar la evaluación"):
         st.latex(r"\mathrm{IoU}=\frac{\mathrm{area\ de\ interseccion}}{\mathrm{area\ de\ union}}")
         st.latex(r"\mathrm{Precision}=\frac{VP}{VP+FP}\qquad\mathrm{Recall}=\frac{VP}{VP+FN}")
+        st.latex(r"F_1=\frac{2\,\mathrm{Precision}\,\mathrm{Recall}}{\mathrm{Precision}+\mathrm{Recall}}")
         st.latex(r"\mathrm{mAP50}=\frac{\mathrm{AP50}_{fuego}+\mathrm{AP50}_{humo}}{2}")
         st.latex(r"\mathrm{Exactitud}=\frac{\mathrm{imagenes\ con\ evento\ correcto}}{\mathrm{total\ de\ imagenes}}")
         st.caption("VP: verdaderos positivos; FP: falsos positivos; FN: falsos negativos. "
@@ -243,9 +284,6 @@ def render_results():
     st.write(f"**Omisiones por clase:** el complemento del recall es {(1 - fire_recall):.2%} para fuego "
              f"y {(1 - smoke_recall):.2%} para humo. Son proporciones de las imágenes que realmente contienen "
              "cada clase, no porcentajes sobre todas las imágenes ni tasas de falsas alarmas.")
-    st.caption("Los archivos exportados no incluyen los conteos VP/FP/FN ni la matriz de confusión completa. "
-               "Tampoco documentan los umbrales exactos usados en metricas_test.json; los controles actuales "
-               "de la aplicación no cambian esos resultados históricos.")
     st.divider()
     section_intro("05", "El efecto del umbral", "Barrido realizado en validación, separado de la evaluación de prueba.")
     sweep_path = MODEL_DIRECTORY / "barrido_umbrales_val.csv"

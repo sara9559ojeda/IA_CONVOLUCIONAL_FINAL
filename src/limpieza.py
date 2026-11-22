@@ -12,13 +12,9 @@ Problemas que resuelve y por qué importan:
      -> Ensucian la función de pérdida: la red aprende ruido.
   3. Imágenes duplicadas (D-Fire tiene muchos fotogramas consecutivos de video).
      -> Repetir la misma imagen no aporta y sesga el entrenamiento.
-  4. Fuga de información: imágenes de entrenamiento casi idénticas a imágenes
-     de prueba.
-     -> Inflan el mAP: el modelo "ya vio" la prueba. Se eliminan del entrenamiento.
-  5. División train/val por GRUPOS de imágenes similares (no al azar), para
-     que la validación mida generalización real.
-  6. Balance: se limita la proporción de imágenes sin fuego ni humo en
-     entrenamiento (se conservan, porque enseñan a evitar falsas alarmas).
+  4. Agrupa globalmente imágenes similares, incluidas conexiones transitivas.
+  5. Divide grupos completos entre train/val/test con objetivo 70/15/15.
+  6. Conserva negativos sin recortes posteriores que cambien las proporciones.
   7. Rendimiento: todas las imágenes se re-codifican una sola vez a 384x384.
      -> En Colab la CPU deja de ser el cuello de botella y cada época es
         mucho más rápida que decodificando las imágenes originales.
@@ -67,8 +63,8 @@ DESCRIPCIONES = [
     ("cajas_diminutas", "Cajas demasiado pequeñas para la cuadrícula (eliminadas)"),
     ("cajas_duplicadas", "Cajas repetidas en la misma imagen (eliminadas)"),
     ("img_duplicadas", "Imágenes duplicadas o casi idénticas (eliminadas)"),
-    ("img_fuga_con_test", "Imágenes de entrenamiento casi iguales a una de prueba (eliminadas)"),
-    ("grupos_similares", "Grupos de imágenes similares usados para dividir train/val"),
+    ("cross_split_pairs", "Pares similares entre particiones (debe ser cero)"),
+    ("grupos_similares", "Grupos de imágenes similares usados para dividir train/val/test"),
     ("grupo_mas_grande", "Tamaño del grupo de imágenes similares más grande"),
     ("negativas_descartadas", "Imágenes sin objetos descartadas para balancear el entrenamiento"),
     ("final_train", "Imágenes finales de entrenamiento"),
@@ -207,6 +203,28 @@ def _grupos(n, ii, jj):
     return list(grupos.values())
 
 
+def split_groups(groups, val_fraction=0.15, test_fraction=0.15, seed=42):
+    """Allocate whole groups to image quotas; never drop samples to force ratios."""
+    if not (0 < val_fraction < 1 and 0 < test_fraction < 1
+            and val_fraction + test_fraction < 1):
+        raise ValueError("Invalid split fractions")
+    if len(groups) < 3 or any(not group for group in groups):
+        raise ValueError("Se necesitan al menos tres grupos independientes no vacíos.")
+    groups = [list(group) for group in groups]
+    random.Random(seed).shuffle(groups)
+    groups.sort(key=len, reverse=True)
+    total = sum(map(len, groups))
+    targets = dict(zip(("train", "val", "test"),
+                       (total*(1-val_fraction-test_fraction), total*val_fraction, total*test_fraction)))
+    splits = {name: [] for name in targets}
+    for index, group in enumerate(groups):
+        empty = [name for name in splits if not splits[name]]
+        candidates = empty if len(groups)-index == len(empty) else list(splits)
+        name = max(candidates, key=lambda key: targets[key]-len(splits[key]))
+        splits[name].extend(group)
+    return {name: sorted(items) for name, items in splits.items()}
+
+
 def _montaje(pares, titulo, ruta, max_pares=6, lado=320):
     """Guarda una imagen con pares lado a lado (para verificar los umbrales)."""
     filas = []
@@ -230,8 +248,8 @@ def _montaje(pares, titulo, ruta, max_pares=6, lado=320):
 # Proceso completo
 # ==========================================================================
 def limpiar_dataset(datos, clases, dir_salida, tam_guardado=None, umbral_duplicado=None,
-                    umbral_similar=None, frac_val=0.1, frac_negativas=None,
-                    min_lado_caja_px=3, max_aspecto=4.0, hilos=8, semilla=42):
+                    umbral_similar=None, frac_val=0.15, frac_negativas=None,
+                    min_lado_caja_px=3, max_aspecto=4.0, hilos=8, semilla=42, frac_test=0.15):
     """Limpia el dataset que entrega `entrenamiento.buscar_dataset`.
 
     Retorna (datos_limpios, reporte) donde datos_limpios tiene la misma forma
@@ -241,7 +259,10 @@ def limpiar_dataset(datos, clases, dir_salida, tam_guardado=None, umbral_duplica
     tam_guardado = tam_guardado or config.TAM_GUARDADO
     umbral_duplicado = config.UMBRAL_HASH_DUPLICADO if umbral_duplicado is None else umbral_duplicado
     umbral_similar = config.UMBRAL_HASH_SIMILAR if umbral_similar is None else umbral_similar
-    frac_negativas = config.FRAC_NEGATIVAS if frac_negativas is None else frac_negativas
+    if frac_negativas not in (None, 1.0):
+        raise ValueError("No se recortan negativos: alteraría la partición 70/15/15.")
+    if not (0 < frac_val < 1 and 0 < frac_test < 1 and frac_val + frac_test < 1):
+        raise ValueError("Fracciones inválidas.")
     rng = random.Random(semilla)
     dir_salida = Path(dir_salida)
     dir_img = dir_salida / "imagenes"
@@ -254,6 +275,7 @@ def limpiar_dataset(datos, clases, dir_salida, tam_guardado=None, umbral_duplica
         etiquetas = datos[split].get("etiquetas", [None] * len(datos[split]["rutas"]))
         for ruta, lbl in zip(datos[split]["rutas"], etiquetas):
             registros.append({"split": split, "origen": ruta, "etiqueta": lbl})
+    registros.sort(key=lambda record: record["origen"])
     conteo["imagenes_iniciales"] = len(registros)
     print(f"1/6 Validando y redimensionando {len(registros)} imágenes a {tam_guardado}x{tam_guardado}...")
 
@@ -273,6 +295,8 @@ def limpiar_dataset(datos, clases, dir_salida, tam_guardado=None, umbral_duplica
         r.update(destino=tarea[1], bits=bits,
                  cajas=limpiar_etiquetas(r["etiqueta"], len(clases), min_lado, conteo))
         validos.append(r)
+    if not validos:
+        raise ValueError("No quedaron imágenes válidas.")
     bits = np.stack([r["bits"] for r in validos])
 
     # ---- 3. Duplicados casi exactos ----
@@ -282,8 +306,8 @@ def limpiar_dataset(datos, clases, dir_salida, tam_guardado=None, umbral_duplica
     for miembros in _grupos(len(validos), ii, jj):
         if len(miembros) < 2:
             continue
-        # se conserva la de prueba (para no alterar el test oficial) o la mejor etiquetada
-        conservar = max(miembros, key=lambda k: (validos[k]["split"] == "test", len(validos[k]["cajas"])))
+        # Se reconstruyen todas las particiones; conservar la mejor etiquetada.
+        conservar = max(miembros, key=lambda k: len(validos[k]["cajas"]))
         for k in miembros:
             if k != conservar:
                 eliminar.add(k)
@@ -291,55 +315,34 @@ def limpiar_dataset(datos, clases, dir_salida, tam_guardado=None, umbral_duplica
                 ej_dup.append((validos[conservar]["destino"], validos[k]["destino"], d))
     conteo["img_duplicadas"] = len(eliminar)
 
-    # ---- 4. Fuga de información entrenamiento -> prueba ----
-    print("4/6 Revisando fuga de información con el conjunto de prueba...")
-    idx_test = [k for k in range(len(validos)) if k not in eliminar and validos[k]["split"] == "test"]
-    idx_tv = [k for k in range(len(validos)) if k not in eliminar and validos[k]["split"] != "test"]
-    a, b, d = _pares(bits[idx_tv], bits[idx_test], umbral_similar)
-    fuga = {idx_tv[x] for x in a.tolist()}
-    ej_fuga = [(validos[idx_test[y]]["destino"], validos[idx_tv[x]]["destino"], int(dd))
-               for x, y, dd in list(zip(a.tolist(), b.tolist(), d.tolist()))[:50]]
-    conteo["img_fuga_con_test"] = len(fuga)
-    if idx_tv and len(fuga) > 0.25 * len(idx_tv):
-        print(f"   ⚠ Se eliminarían {len(fuga)} imágenes por fuga (más del 25 %). Revisa "
-              "'ejemplos_fuga.jpg'; si los pares no son casi iguales, baja UMBRAL_HASH_SIMILAR.")
-    eliminar |= fuga
-    idx_tv = [k for k in idx_tv if k not in fuga]
-
-    # ---- 5. División train/val por grupos de imágenes similares ----
-    print("5/6 Dividiendo entrenamiento y validación por grupos similares...")
-    ii, jj, _ = _pares(bits[idx_tv], bits[idx_tv], umbral_similar, misma=True)
-    grupos = [[idx_tv[k] for k in g] for g in _grupos(len(idx_tv), ii, jj)]
+    # Agrupar antes de retirar duplicados conserva los puentes A~B~C,
+    # incluso cuando B se elimina por duplicación.
+    print("4/6 Agrupando similitud global y conexiones transitivas...")
+    ii, jj, distances = _pares(bits, bits, max(umbral_similar, umbral_duplicado), misma=True)
+    grupos = [[k for k in group if k not in eliminar]
+              for group in _grupos(len(validos), ii, jj)]
+    grupos = [group for group in grupos if group]
     conteo["grupos_similares"] = len(grupos)
-    conteo["grupo_mas_grande"] = max((len(g) for g in grupos), default=0)
-    rng.shuffle(grupos)
-    objetivo_val = int(frac_val * len(idx_tv))
-    train, val = [], []
-    for g in grupos:
-        if len(val) + len(g) <= objetivo_val:
-            val.extend(g)
-        else:
-            train.extend(g)
-
-    # ---- 6. Balance de imágenes sin objetos (solo en entrenamiento) ----
-    print("6/6 Balanceando y guardando...")
-    positivas = [k for k in train if len(validos[k]["cajas"])]
-    negativas = [k for k in train if not len(validos[k]["cajas"])]
-    max_neg = int(len(positivas) * frac_negativas / (1 - frac_negativas))
-    if len(negativas) > max_neg:
-        rng.shuffle(negativas)
-        descartadas = negativas[max_neg:]
-        negativas = negativas[:max_neg]
-        eliminar |= set(descartadas)
-        conteo["negativas_descartadas"] = len(descartadas)
-    train = positivas + negativas
+    conteo["grupo_mas_grande"] = max(map(len, grupos), default=0)
+    group_ids = {k: group_id for group_id, group in enumerate(grupos) for k in group}
+    print("5/6 Dividiendo grupos completos con objetivo 70/15/15...")
+    particiones = split_groups(grupos, frac_val, frac_test, semilla)
+    owners = {k: split for split, indices in particiones.items() for k in indices}
+    cross_pairs = sum(owners[a] != owners[b] for a, b in zip(ii, jj)
+                      if a in owners and b in owners)
+    if cross_pairs:
+        raise RuntimeError("Se detectaron pares similares entre particiones.")
+    conteo["cross_split_pairs"] = cross_pairs
+    ej_fuga = [(validos[a]["destino"], validos[b]["destino"], int(d))
+               for a, b, d in zip(ii[:50], jj[:50], distances[:50])]
+    print("6/6 Guardando sin recortar imágenes después de dividir...")
 
     # ---- Imágenes de ejemplo para el reporte (antes de borrar archivos) ----
     rng.shuffle(ej_dup)
     rng.shuffle(ej_fuga)
     _montaje(ej_dup, f"Duplicados eliminados (umbral {umbral_duplicado} de 256 bits)",
              dir_salida / "ejemplos_duplicados.jpg")
-    _montaje(ej_fuga, f"Fuga: test (izq) vs train eliminada (der), umbral {umbral_similar}",
+    _montaje(ej_fuga, f"Similitud agrupada (no cruza particiones), umbral {umbral_similar}",
              dir_salida / "ejemplos_fuga.jpg")
 
     # Borra del disco las imágenes descartadas (el zip queda más liviano)
@@ -350,12 +353,16 @@ def limpiar_dataset(datos, clases, dir_salida, tam_guardado=None, umbral_duplica
             pass
 
     # ---- Manifiesto + reporte ----
-    particiones = {"train": sorted(train), "val": sorted(val), "test": sorted(idx_test)}
-    manifiesto = {"tam_guardado": tam_guardado, "clases": list(clases), "splits": {}}
+    manifiesto = {"tam_guardado": tam_guardado, "clases": list(clases), "splits": {},
+                  "partition_version": "grouped_70_15_15_v1", "seed": semilla,
+                  "target_fractions": {"train": 1-frac_val-frac_test, "val": frac_val, "test": frac_test},
+                  "actual_fractions": {name: len(items)/sum(map(len, particiones.values()))
+                                       for name, items in particiones.items()},
+                  "cross_split_similar_pairs": cross_pairs}
     for split, indices in particiones.items():
         manifiesto["splits"][split] = [
             {"img": os.path.relpath(validos[k]["destino"], dir_salida),
-             "origen": validos[k]["origen"], "cajas": validos[k]["cajas"].round(6).tolist()}
+             "origen": validos[k]["origen"], "group_id": group_ids[k], "cajas": validos[k]["cajas"].round(6).tolist()}
             for k in indices]
         conteo[f"final_{split}"] = len(indices)
     conteo["cajas_finales"] = sum(len(validos[k]["cajas"]) for ind in particiones.values() for k in ind)
@@ -363,7 +370,9 @@ def limpiar_dataset(datos, clases, dir_salida, tam_guardado=None, umbral_duplica
     with open(dir_salida / "manifiesto.json", "w", encoding="utf-8") as f:
         json.dump(manifiesto, f)
     reporte.to_csv(dir_salida / "reporte_limpieza.csv", index=False)
-    print("Listo.")
+    for name, fraction in manifiesto["actual_fractions"].items():
+        print(f"{name}: {len(particiones[name])} imágenes ({fraction:.2%})")
+    print("Pares similares entre particiones: 0. Listo.")
     return cargar_manifiesto(dir_salida), reporte
 
 

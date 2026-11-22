@@ -90,7 +90,7 @@ Ejecuta cada celda con **Shift + Enter**, una por una, y revisa que cada paso d�
 | 4 | Copiar y descomprimir el zip | Tarda 3–10 min. Al final lista las carpetas del dataset. Si dice *No such file*, revisa `ZIP_DFIRE`. |
 | 5 | **Limpieza del dataset** | Muestra primero la tabla del dataset **original** y luego 6 etapas (`1/6 … 6/6`) con barra de progreso. La primera vez tarda **5–15 min**. Al final aparecen el **reporte de limpieza** y la tabla del dataset **limpio**. 📸 **Toma captura de ambas tablas para el reporte.** Si el dataset original sale con 0 imágenes, la estructura del zip es distinta (ver *Problemas frecuentes*). |
 | 6 | Ejemplos de duplicados y de fuga | Muestra pares de imágenes. **Revisa que cada par sea casi la misma imagen.** Si ves pares que no se parecen, mira el paso 3.3. |
-| 7 | **Verificación visual** | ⚠️ **Muy importante:** mira las imágenes. Las cajas que dicen **fuego** deben estar sobre **llamas** y las de **humo** sobre **humo**. Si salen al revés, abre `src/config.py` en Drive, cambia `CLASES = ["humo", "fuego"]` por `["fuego", "humo"]`, guarda, borra `entrenamiento/dfire_limpio.zip` y reinicia el entorno (**Entorno de ejecución → Reiniciar sesión**). Las imágenes se ven cuadradas porque se guardaron a 384×384; es normal. |
+| 7 | **Verificación visual** | ⚠️ **Muy importante:** mira las imágenes. Las cajas que dicen **fuego** deben estar sobre **llamas** y las de **humo** sobre **humo**. Si salen al revés, abre `src/config.py` en Drive, cambia `CLASES = ["humo", "fuego"]` por `["fuego", "humo"]`, guarda, borra `entrenamiento/dfire_limpio_70_15_15.zip` y reinicia el entorno (**Entorno de ejecución → Reiniciar sesión**). Las imágenes se ven cuadradas porque se guardaron a 384×384; es normal. |
 | 8 | Estadísticas | 4 gráficas: imágenes por partición, cajas por clase, tamaño de las cajas y cajas por imagen. 📸 **Captura para el reporte.** |
 | 9 | Anclas (k-means) | Muestra 3 pares de números (ancho, alto) y un "IoU medio". |
 | 10 | Modelo y `summary()` | Muestra la tabla de capas de la CNN. 📸 **Toma una captura para el reporte.** |
@@ -98,7 +98,7 @@ Ejecuta cada celda con **Shift + Enter**, una por una, y revisa que cada paso d�
 
 ### 3.3 Qué hace la limpieza y cómo leer su reporte
 
-La limpieza se ejecuta **una sola vez**. El resultado se guarda en Drive como `deteccion_incendios/entrenamiento/dfire_limpio.zip`. Las siguientes veces que abras el notebook, el paso 5 solo lo descomprime (~1 min) y ni siquiera hace falta volver a copiar el zip original.
+La limpieza se ejecuta **una sola vez**. El resultado se guarda en Drive como `deteccion_incendios/entrenamiento/dfire_limpio_70_15_15.zip`. Las siguientes veces que abras el notebook, el paso 5 solo lo descomprime (~1 min) y ni siquiera hace falta volver a copiar el zip original.
 
 | Fila del reporte | Qué significa | Valor esperado |
 |---|---|---|
@@ -107,13 +107,13 @@ La limpieza se ejecuta **una sola vez**. El resultado se guarda en Drive como `d
 | Cajas recortadas | Cajas que se salían del borde y se ajustaron | Algunas |
 | Cajas diminutas | Cajas de menos de 3 px a 320×320, que la red no puede aprender | Algunas decenas o cientos |
 | Imágenes duplicadas | Copias casi exactas, por ejemplo fotogramas repetidos de un video | Puede ser bastante: D-Fire tiene muchos fotogramas |
-| Fuga con test | Imágenes de entrenamiento casi iguales a una de prueba. Se eliminan para que el mAP sea honesto | Variable. Si supera el 25 % sale una advertencia |
+| Fuga | Se agrupan imágenes similares globalmente, incluidas conexiones transitivas | Se verifica cero pares similares detectados entre particiones |
 | Grupos similares / grupo más grande | Cómo se agruparon las imágenes para separar entrenamiento y validación | Un grupo grande es normal (un mismo video) |
-| Negativas descartadas | Imágenes sin fuego ni humo que se quitaron para que sean como máximo el 30 % del entrenamiento | Varios miles |
+| Negativas | Se conservan sin recortes posteriores | No se alteran las proporciones después de dividir |
 
 **Si en los ejemplos aparecen pares que NO son casi la misma imagen**, los umbrales están demasiado altos:
 1. Abre `src/config.py` en Drive y baja `UMBRAL_HASH_DUPLICADO` (por ejemplo de 8 a 5) y/o `UMBRAL_HASH_SIMILAR` (de 24 a 16).
-2. Borra `entrenamiento/dfire_limpio.zip` en Drive.
+2. Borra `entrenamiento/dfire_limpio_70_15_15.zip` en Drive.
 3. **Entorno de ejecución → Reiniciar sesión** y ejecuta todo otra vez.
 
 Al revés: si se elimina muy poco y sabes que hay muchos fotogramas repetidos, puedes subir los umbrales.
@@ -123,7 +123,7 @@ Al revés: si se elimina muy poco y sabes que hay muchos fotogramas repetidos, p
 - Lo normal es que `loss` y `val_loss` bajen época a época. Al principio bajan rápido y después más despacio.
 - `perd_caja`, `perd_obj`, `perd_noobj` y `perd_clase` son los cuatro términos de la pérdida por separado (sumados dan `loss`). Sirven para ver cuál se queda atascado.
 - Al final de cada época se mide la **detección real en validación**: `val_mAP50`, `val_AP50_humo`, `val_AP50_fuego` y la precisión y el recall por imagen. En las primeras épocas es normal que salgan en 0.
-- Cada época se guarda sola en `Mi unidad/deteccion_incendios/entrenamiento/v2_zona_ignorar/` (la carpeta `DIR_EXPERIMENTO` de la sección 1 del notebook), con los archivos `ultimo.keras`, `mejor.keras` y `historial.csv`. `mejor.keras` es la época con mayor `val_mAP50`.
+- Cada época se guarda sola en `Mi unidad/deteccion_incendios/entrenamiento/v3_split_70_15_15/` (la carpeta `DIR_EXPERIMENTO` de la sección 1 del notebook), con los archivos `ultimo.keras`, `mejor.keras` y `historial.csv`. `mejor.keras` es la época con mayor `val_mAP50`.
 - Puede terminar antes de las 60 épocas: si `val_mAP50` no mejora durante 12 épocas seguidas, la parada temprana detiene el entrenamiento. Eso es normal.
 
 ### 3.5 Si Colab se desconecta
@@ -131,7 +131,7 @@ Al revés: si se elimina muy poco y sabes que hay muchos fotogramas repetidos, p
 2. Ejecuta **otra vez todas las celdas desde la primera**.
 3. En la celda de entrenamiento verás `Reanudando desde la época N`. No se pierde lo ya entrenado.
 
-> Para empezar el entrenamiento desde cero, borra en `deteccion_incendios/entrenamiento/v2_zona_ignorar/` los archivos `ultimo.keras`, `mejor.keras` e `historial.csv`, o cambia el nombre de `DIR_EXPERIMENTO` en la sección 1 del notebook para conservar el entrenamiento anterior y poder compararlos. Borra además `entrenamiento/anclas.npy` solo si quieres recalcular las anclas. **No borres `dfire_limpio.zip`**, para no repetir la limpieza.
+> Para empezar el entrenamiento desde cero, borra en `deteccion_incendios/entrenamiento/v3_split_70_15_15/` los archivos `ultimo.keras`, `mejor.keras` e `historial.csv`, o cambia el nombre de `DIR_EXPERIMENTO` en la sección 1 del notebook para conservar el entrenamiento anterior y poder compararlos. Borra además `entrenamiento/v3_split_70_15_15/anclas.npy` solo si quieres recalcular las anclas. **No borres `dfire_limpio_70_15_15.zip`**, para no repetir la limpieza.
 >
 > Un entrenamiento hecho con una versión anterior del código (otra pérdida) no se puede reanudar: la celda avisa con un error en vez de mezclar los dos.
 
@@ -325,7 +325,7 @@ Se abre el navegador en `http://localhost:8501`.
 - **¿Cómo se sabe si el humo es negro?** Por análisis de color en HSV dentro de la caja, porque el dataset no etiqueta el color.
 - **¿El transformer inventa respuestas?** No. Es extractivo: solo selecciona texto del contexto, que está formado por la detección y los protocolos.
 - **¿Por qué no se usó YOLO preentrenado?** Por la regla del proyecto: la CNN debía entrenarse desde cero.
-- **¿Cómo limpiaron el dataset?** Se eliminaron imágenes corruptas y etiquetas defectuosas, se quitaron duplicados con un hash perceptual y se eliminó la fuga entre entrenamiento y prueba. Además, train y val se separaron por grupos de imágenes similares y se limitaron las imágenes sin objetos al 30 %.
+- **¿Cómo limpiaron el dataset?** Se depuraron imágenes y etiquetas, se eliminaron duplicados y se agruparon imágenes similares globalmente. Los grupos completos se repartieron con objetivo 70/15/15, sin recortar negativos después.
 - **¿Qué es la fuga de información?** Que el modelo vea en entrenamiento imágenes casi iguales a las de prueba. Eso infla las métricas, porque el modelo estaría "recordando" en vez de generalizar.
 
 ---
@@ -338,10 +338,10 @@ Se abre el navegador en `http://localhost:8501`.
 | `ModuleNotFoundError: No module named 'src'` en Colab | `RUTA_PROYECTO` no apunta a la carpeta del proyecto en Drive. |
 | La tabla del dataset sale con 0 imágenes | Revisa la salida de `!ls /content/dfire`. Las imágenes deben estar dentro de carpetas llamadas `images` y las etiquetas en carpetas `labels`. |
 | La limpieza se queda sin RAM (Colab se reinicia) | En la celda 5 llama `limpieza.limpiar_dataset(..., hilos=4)` y vuelve a ejecutar. |
-| La advertencia "más del 25 % por fuga" | Mira `ejemplos_fuga.jpg`. Si los pares se parecen de verdad, la advertencia es correcta y puedes seguir. Si no se parecen, baja `UMBRAL_HASH_SIMILAR` (sección 3.3). |
+| Grupos demasiado grandes o proporciones alejadas del objetivo | Revisa los ejemplos de similitud; no se dividen grupos para forzar porcentajes exactos |
 | Cambié algo en `config.py` y no se aplica | Colab guarda los módulos importados en memoria: usa **Entorno de ejecución → Reiniciar sesión** y ejecuta todo otra vez. |
 | Error de memoria (OOM) | Baja `LOTE` a 8. |
-| `loss` sale `nan` | Borra `ultimo.keras`, `mejor.keras` e `historial.csv` de `entrenamiento/v2_zona_ignorar/` y baja la tasa de aprendizaje: `ent.entrenar(..., lr_max=5e-4)`. |
+| `loss` sale `nan` | Borra `ultimo.keras`, `mejor.keras` e `historial.csv` de `entrenamiento/v3_split_70_15_15/` y baja la tasa de aprendizaje: `ent.entrenar(..., lr_max=5e-4)`. |
 | La app dice que no encuentra el modelo | Copia `detector_fuego_humo.keras` y `detector_config.json` a `modelos/`. |
 | Error al cargar el `.keras` en tu PC | La versión de TensorFlow local no coincide con la de Colab. Repite el paso 6.2 con la versión de `detector_config.json`. |
 | `pip install tensorflow` falla | Asegúrate de haber creado el entorno con **Python 3.12** (`py -3.12`). |
@@ -349,3 +349,5 @@ Se abre el navegador en `http://localhost:8501`.
 | Muchas detecciones falsas | Sube el umbral en la barra lateral, o entrena más épocas. |
 | El asistente responde algo raro | Reformula la pregunta de forma directa, por ejemplo "¿Cuál es la recomendación principal?". Con muy baja confianza responde que no encontró la respuesta. |
 | Los números de emergencia no son los de tu país | Cámbialos en `src/config.py` (`NUMERO_EMERGENCIAS`, `NUMERO_BOMBEROS`). |
+
+Para la nueva partición, subir `src/` actualizado y el notebook a Drive; reiniciar la sesión de Colab y ejecutar desde el inicio con el D-Fire original. El ZIP `dfire_limpio_70_15_15.zip`, los checkpoints y las anclas de `v3_split_70_15_15` se crean nuevos. Las métricas anteriores no describen este entrenamiento. El manifiesto guarda grupos, semilla, proporciones reales y la comprobación de pares similares entre particiones. Los porcentajes pueden variar ligeramente por grupos indivisibles.
