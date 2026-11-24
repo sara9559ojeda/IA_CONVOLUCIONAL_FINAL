@@ -31,15 +31,19 @@ selected_section = st.sidebar.radio(
     key="project_section",
 )
 st.sidebar.divider()
+# Vaciar la vista anterior antes de que el bucle de cámara mantenga abierta la ejecución.
+project_view = st.empty()
+detector_view = st.empty()
 if selected_section != "Probar detector":
     from src.project_sections import render_assistant_results, render_project_section
-    render_header(selected_section)
-    if selected_section == "Resultados":
-        modelo = st.radio("Evaluación", ["Detector (CNN)", "Asistente (transformer)"], horizontal=True)
-        if modelo == "Asistente (transformer)":
-            render_assistant_results()
-            st.stop()
-    render_project_section(selected_section)
+    with project_view.container():
+        render_header(selected_section)
+        if selected_section == "Resultados":
+            modelo = st.radio("Evaluación", ["Detector (CNN)", "Asistente (transformer)"], horizontal=True)
+            if modelo == "Asistente (transformer)":
+                render_assistant_results()
+                st.stop()
+        render_project_section(selected_section)
     st.stop()
 
 
@@ -80,7 +84,9 @@ ss = st.session_state
 ss.setdefault("monitor", MonitorEventos())
 ss.setdefault("registro", RegistroAlertas())    # captura + fila de CSV por alerta
 ss.setdefault("estado", EstadoAlerta())
-ss.setdefault("chat", [])
+ss.setdefault("source_chat", [])
+events = ss.monitor.eventos
+ss.setdefault("source_event_start", len(events) - int(bool(events and events[-1]["_abierto"])))
 ss.setdefault("frame_idx", 0)
 ss.setdefault("video_id", None)
 ss.setdefault("video_ruta", None)
@@ -117,7 +123,10 @@ archivo = None
 indice_camara = 0
 restart_video = False
 if fuente == "Cámara web":
-    indice_camara = int(st.sidebar.number_input("Índice de cámara", 0, 5, 0))
+    indice_camara = int(st.sidebar.number_input(
+        "Índice de cámara", 0, 5, 0,
+        help="El índice selecciona un dispositivo. La cámara principal suele ser la 0.",
+    ))
 elif fuente == "Archivo de video":
     archivo = st.sidebar.file_uploader("Video", type=["mp4", "avi", "mov", "mkv"])
     restart_video = st.sidebar.button("⏮ Reiniciar video")
@@ -135,9 +144,12 @@ nombre_fuente = archivo.name if archivo is not None else fuente
 
 # Track uploads as well as source type/camera, even while analysis is paused.
 upload_key = (archivo.name, archivo.size, archivo.file_id) if archivo is not None else None
-source_key = (fuente, indice_camara if fuente == "Cámara web" else upload_key)
+source_key = ((fuente, indice_camara, umbral["fuego"], umbral["humo"])
+              if fuente == "Cámara web" else (fuente, upload_key))
 if source_key != ss.source_key or restart_video:
     ss.monitor.reset_source()
+    ss.source_chat = []
+    ss.source_event_start = len(ss.monitor.eventos)
     ss.registro.actualizar(ss.monitor.eventos, forzar=True)
     ss.estado = EstadoAlerta()
     ss.ultimo_frame = None
@@ -158,7 +170,8 @@ if st.sidebar.button("🗑 Reiniciar sesión"):
     ss.monitor.reiniciar()
     ss.registro = RegistroAlertas()     # lo ya guardado en disco se conserva
     ss.estado = EstadoAlerta()
-    ss.chat = []
+    ss.source_chat = []
+    ss.source_event_start = 0
     ss.frame_idx = 0
     ss.ultimo_frame = None
     ss.imagen_id = None
@@ -169,8 +182,9 @@ st.sidebar.caption(f"Asistente: `{asistente.nombre_modelo}`" if asistente is not
 # --------------------------------------------------------------------------
 # Diseño
 # --------------------------------------------------------------------------
-render_header()
-col_video, col_panel = st.columns([1.8, 1], gap="large")
+with detector_view.container():
+    render_header()
+    col_video, col_panel = st.columns([1.8, 1], gap="large")
 with col_video:
     st.subheader("Observación")
     ph_alerta = st.empty()
@@ -232,20 +246,37 @@ def render_recomendaciones(tipo):
 
 def render_historial():
     tabla = ss.monitor.tabla_eventos()
+    if fuente == "Cámara web":
+        tabla = tabla[ss.source_event_start:]
     if tabla:
         ph_historial.dataframe(pd.DataFrame(tabla[::-1]), hide_index=True)
     else:
         ph_historial.caption("Aún no hay eventos registrados.")
 
 
-def render_guardadas():
+def borrar_alertas_guardadas():
+    try:
+        ss.registro.borrar_guardadas()
+    except OSError:
+        ss.error_borrado = "No se pudo completar el borrado. Cierra los archivos abiertos y vuelve a intentarlo."
+    else:
+        ss.pop("error_borrado", None)
+
+
+def render_guardadas(vista="inicial"):
     """Alertas que quedaron en disco (de esta sesión y de las anteriores)."""
     filas = ss.registro.leer()
     with ph_guardadas.container():
-        with st.expander(f"💾 Alertas guardadas en disco ({len(filas)})"):
+        with st.expander(f"Alertas guardadas en disco ({len(filas)})"):
+            if ss.get("error_borrado"):
+                st.error(ss.error_borrado)
             if filas:
                 st.dataframe(pd.DataFrame(filas[::-1]).drop(columns="sesion", errors="ignore"),
                              hide_index=True)
+                with st.popover("Borrar alertas guardadas", key=f"borrar_alertas_{vista}"):
+                    st.write("Se eliminarán todas las alertas guardadas en disco y sus capturas, incluidas las de otras sesiones.")
+                    st.button("Confirmar borrado", key=f"confirmar_borrado_{vista}",
+                              on_click=borrar_alertas_guardadas)
             st.caption(f"Cada alerta guarda una captura y una fila de `alertas.csv` en "
                        f"`{ss.registro.dir}`. No se borran al reiniciar la sesión.")
 
@@ -256,19 +287,21 @@ def render_guardadas():
 if enviada and pregunta.strip() and asistente is not None:
     try:
         with st.spinner("El asistente está pensando..."):
-            r = asistente.responder(pregunta.strip(), ss.estado, ss.monitor.eventos)
-        ss.chat.append((pregunta.strip(), r))
+            eventos_fuente = ss.monitor.eventos[ss.source_event_start:]
+            r = asistente.responder(pregunta.strip(), ss.estado, eventos_fuente)
+        ss.source_chat.append((pregunta.strip(), r))
     except Exception:  # noqa: BLE001 - la inferencia no debe detener el detector
         st.warning("No se pudo responder la pregunta. El detector sigue funcionando.")
 with contenedor_chat:
-    for p, r in reversed(ss.chat[-6:]):
+    for p, r in reversed(ss.source_chat[-6:]):
         st.markdown(f"🧑 **{p}**")
         st.markdown(f"🤖 {r['respuesta']}")
         if r.get("accepted", True):
-            fuente = f"Fuente: {r['fuente']} · " if r.get("fuente") else ""
-            st.caption(f"{fuente}Fragmento extraído: “{r['fragmento']}” · puntaje del modelo: {r['score']:.2f}")
+            cita = f"Fuente: {r['fuente']} · " if r.get("fuente") else ""
+            st.caption(f"{cita}Fragmento extraído: “{r['fragmento']}” · puntaje del modelo: {r['score']:.2f}")
 
-render_alerta(ss.estado)
+if fuente != "Cámara web" or ss.ultimo_frame is not None:
+    render_alerta(ss.estado)
 render_estado(ss.estado)
 render_recomendaciones(ss.estado.estado_asistente)
 render_historial()
@@ -323,27 +356,50 @@ elif analizar:
         cap.set(cv2.CAP_PROP_POS_FRAMES, ss.frame_idx)
         fps_video = cap.get(cv2.CAP_PROP_FPS) or 25.0
         fps_fuente, limite_descarte = fps_video, None
-    else:
+    elif fuente == "Cámara web":
         backend = cv2.CAP_DSHOW if hasattr(cv2, "CAP_DSHOW") else cv2.CAP_ANY
         cap = cv2.VideoCapture(indice_camara, backend)
         fps_video = None
         fps_camara = cap.get(cv2.CAP_PROP_FPS)
         fps_fuente = fps_camara if fps_camara and fps_camara > 0 else 30.0
         limite_descarte = 0.5 / fps_fuente      # en vivo solo se vacía el búfer atrasado
-
-    if not cap.isOpened():
-        ph_info.error("No se pudo abrir la fuente de video.")
+    else:
         st.stop()
 
-    tipo_recomendado = ss.estado.estado_asistente
-    n, t_ini = 0, time.time()
-    descartados, t_ciclo = 0, time.perf_counter()
     try:
+        if not cap.isOpened():
+            if fuente == "Cámara web":
+                ss.ultimo_frame = None
+                ph_frame.empty()
+                ph_alerta.warning(f"Sin señal de la cámara {indice_camara}.")
+                ayuda = ("Vuelve al índice 0 si usas la cámara principal."
+                         if indice_camara else "Comprueba que la cámara esté conectada y disponible.")
+                ph_info.error(f"No se pudo abrir la cámara {indice_camara}. {ayuda}")
+            else:
+                ph_info.error("No se pudo abrir la fuente de video.")
+            st.stop()
+        tipo_recomendado = ss.estado.estado_asistente
+        n, t_ini = 0, time.time()
+        fallos_camara = 0
+        descartados, t_ciclo = 0, time.perf_counter()
         while True:
             ok, frame = cap.read()
-            if not ok:
-                ph_info.info("Fin del video. Usa '⏮ Reiniciar video' para verlo de nuevo.")
-                break
+            if not ok or frame is None or frame.size == 0:
+                if fuente == "Archivo de video":
+                    ph_info.info("Fin del video. Usa '⏮ Reiniciar video' para verlo de nuevo.")
+                    break
+                fallos_camara += 1
+                if fallos_camara == 1:
+                    ph_alerta.warning("Sin señal de la cámara. Reintentando…")
+                    ph_frame.empty()
+                    ss.ultimo_frame = None
+                if fallos_camara >= 10:
+                    ph_info.warning("La cámara dejó de enviar imágenes. Desactiva y vuelve a activar «Analizar».")
+                    break
+                time.sleep(0.1)
+                continue
+            if fallos_camara:
+                ph_info.empty()
             if fps_video:                                   # archivo de video
                 ss.frame_idx += 1
                 t = ss.frame_idx / fps_video
@@ -353,6 +409,9 @@ elif analizar:
                 marca = "las " + datetime.now().strftime("%H:%M:%S")
 
             estado, anotado, dets = procesar_frame(frame, t, marca)
+            if fallos_camara or n == 0:
+                render_alerta(estado)
+                fallos_camara = 0
             mostrar_imagen(ph_frame, anotado)
             n += 1
             if n % 3 == 0:
@@ -379,9 +438,10 @@ elif analizar:
         cap.release()
         # deja en disco la duración final de la alerta que siga abierta
         ss.registro.actualizar(ss.monitor.eventos, fuente=nombre_fuente, forzar=True)
-    render_alerta(ss.estado)
+    if not fallos_camara:
+        render_alerta(ss.estado)
     render_estado(ss.estado)
     render_historial()
-    render_guardadas()
+    render_guardadas("final")
 elif ss.ultimo_frame is None:
     ph_info.info("Elige una fuente en la barra lateral y activa '▶ Analizar'.")

@@ -91,6 +91,20 @@ def test_admite_tildes_en_la_ruta(tmp_path):
     assert (carpeta / fila["captura"]).stat().st_size > 0
 
 
+def test_borrar_guardadas_con_dos_sesiones_activas(tmp_path):
+    registros = [RegistroAlertas(tmp_path), RegistroAlertas(tmp_path)]
+    for registro in registros:
+        registro.actualizar([evento()], IMAGEN)
+    otro = tmp_path / "otra_imagen.jpg"
+    otro.touch()
+    registros[0].borrar_guardadas()
+    assert list(tmp_path.iterdir()) == [otro]
+    for registro in registros:
+        registro.actualizar([evento(duracion=2), evento(2)], IMAGEN)
+    assert [fila["id"] for fila in registros[0].leer()] == ["2", "2"]
+    assert len(list(tmp_path.glob("*_evento*.jpg"))) == 2
+
+
 def test_si_el_csv_esta_bloqueado_no_falla_y_reintenta(tmp_path, monkeypatch):
     registro = RegistroAlertas(tmp_path, intervalo_s=0)
 

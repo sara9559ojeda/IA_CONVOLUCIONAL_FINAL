@@ -1,3 +1,7 @@
+[runner]
+# Espera a que la ejecución anterior libere la webcam antes de abrirla de nuevo.
+fastReruns = false
+
 [theme]
 base = "dark"
 primaryColor = "#d49a7f"

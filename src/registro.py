@@ -13,6 +13,7 @@ abierta y cuando termina (duración, confianza máxima y área máxima).
 """
 import csv
 import os
+import re
 import threading
 import time
 import uuid
@@ -29,11 +30,18 @@ _DATOS_EVENTO = ["tipo", "nivel", "inicio", "duracion_s", "conf_max_%", "area_ma
 _CANDADO = threading.Lock()     # varias pestañas de la app comparten el mismo CSV
 
 
-def leer_alertas(ruta_csv):
-    """Lee `alertas.csv` como lista de diccionarios (vacía si aún no existe)."""
+def _leer_existentes(ruta_csv):
     try:
         with open(ruta_csv, newline="", encoding="utf-8-sig") as f:
             return list(csv.DictReader(f))
+    except FileNotFoundError:
+        return []
+
+
+def leer_alertas(ruta_csv):
+    """Lee el historial disponible para mostrarlo en la interfaz."""
+    try:
+        return _leer_existentes(ruta_csv)
     except OSError:
         return []
 
@@ -47,6 +55,7 @@ class RegistroAlertas:
         self.sesion = f"{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:4]}"
         self.intervalo_s = intervalo_s      # cada cuánto se actualiza una alerta abierta
         self._filas = {}                    # id del evento -> fila del CSV
+        self._ids_guardados = set()
         self._pendiente = False
         self._ultima_escritura = 0.0
 
@@ -83,6 +92,15 @@ class RegistroAlertas:
         """Todas las alertas guardadas en disco (de esta sesión y de las anteriores)."""
         return leer_alertas(self.ruta_csv)
 
+    def borrar_guardadas(self):
+        """Borra las capturas registradas y su índice, también de otras sesiones."""
+        with _CANDADO:
+            for fila in _leer_existentes(self.ruta_csv):
+                nombre = fila.get("captura") or ""
+                if re.fullmatch(r"\d{8}_\d{6}_[0-9a-f]{4}_evento\d+_[\w-]+\.jpg", nombre):
+                    (self.dir / nombre).unlink(missing_ok=True)
+            self.ruta_csv.unlink(missing_ok=True)
+
     # ------------------------------------------------------------------
     def _guardar_captura(self, evento, imagen_bgr):
         if imagen_bgr is None:
@@ -104,13 +122,19 @@ class RegistroAlertas:
         try:
             with _CANDADO:
                 self.dir.mkdir(parents=True, exist_ok=True)
-                otras = [f for f in leer_alertas(self.ruta_csv) if f.get("sesion") != self.sesion]
+                existentes = _leer_existentes(self.ruta_csv)
+                otras = [f for f in existentes if f.get("sesion") != self.sesion]
+                vigentes = {f["id"] for f in existentes if f.get("sesion") == self.sesion}
+                # Una alerta ya escrita que desapareció del CSV fue borrada por el usuario.
+                propias = [fila for id_, fila in self._filas.items()
+                           if id_ not in self._ids_guardados or str(id_) in vigentes]
                 with open(temporal, "w", newline="", encoding="utf-8-sig") as f:
                     escritor = csv.DictWriter(f, fieldnames=COLUMNAS, extrasaction="ignore")
                     escritor.writeheader()
                     escritor.writerows(otras)
-                    escritor.writerows(self._filas.values())
+                    escritor.writerows(propias)
                 os.replace(temporal, self.ruta_csv)
+                self._ids_guardados.update(self._filas)
         except OSError:
             # Por ejemplo, el CSV está abierto en Excel. La detección no se
             # detiene por esto: los cambios quedan pendientes y se reintenta.
