@@ -6,7 +6,10 @@ Izquierda : video / cámara / imagen con cajas de fuego y humo y alerta visual.
 Derecha   : estado de la alerta, recomendaciones del asistente (transformer),
             chat para preguntar sobre las detecciones e historial de eventos.
 """
+import base64
+from io import BytesIO
 import os
+import platform
 import time
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +18,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
+from PIL import Image
 
 from src import config
 from src.interface import apply_theme, render_header, sidebar_brand, empty_viewer, alert_markup
@@ -122,7 +126,10 @@ umbral = {   # un umbral por clase: el humo sale con menos confianza que el fueg
 archivo = None
 indice_camara = 0
 restart_video = False
-if fuente == "Cámara web":
+browser_camera = fuente == "Cámara web"
+if browser_camera and platform.system() == "Windows":
+    browser_camera = not st.sidebar.checkbox("Usar cámara local de Windows", key="local_camera")
+if fuente == "Cámara web" and not browser_camera:
     indice_camara = int(st.sidebar.number_input(
         "Índice de cámara", 0, 5, 0,
         help="El índice selecciona un dispositivo. La cámara principal suele ser la 0.",
@@ -130,11 +137,11 @@ if fuente == "Cámara web":
 elif fuente == "Archivo de video":
     archivo = st.sidebar.file_uploader("Video", type=["mp4", "avi", "mov", "mkv"])
     restart_video = st.sidebar.button("⏮ Reiniciar video")
-else:
+elif fuente == "Imagen":
     archivo = st.sidebar.file_uploader("Imagen", type=["jpg", "jpeg", "png", "bmp", "webp"])
 
 salto = "Auto"
-if fuente != "Imagen":
+if fuente != "Imagen" and not browser_camera:
     salto = st.sidebar.select_slider(
         "Analizar 1 de cada N fotogramas", options=["Auto", 1, 2, 3, 5, 10], value="Auto",
         help="Auto descarta los fotogramas necesarios para que el video avance a su "
@@ -144,7 +151,7 @@ nombre_fuente = archivo.name if archivo is not None else fuente
 
 # Track uploads as well as source type/camera, even while analysis is paused.
 upload_key = (archivo.name, archivo.size, archivo.file_id) if archivo is not None else None
-source_key = ((fuente, indice_camara, umbral["fuego"], umbral["humo"])
+source_key = ((fuente, browser_camera, indice_camara, umbral["fuego"], umbral["humo"])
               if fuente == "Cámara web" else (fuente, upload_key))
 if source_key != ss.source_key or restart_video:
     ss.monitor.reset_source()
@@ -324,7 +331,35 @@ def procesar_frame(frame, t, marca, inmediato=False):
 # --------------------------------------------------------------------------
 # Imagen suelta
 # --------------------------------------------------------------------------
-if fuente == "Imagen":
+if browser_camera and analizar:
+    from src.browser_camera import capture
+
+    with col_video:
+        received = capture(key="browser_stream", data={"ack": ss.get("camera_ack")},
+                           on_frame_change=lambda: None)
+    packet = received.frame
+    if isinstance(packet, dict) and packet.get("id") != ss.get("camera_ack"):
+        ss.camera_ack = packet.get("id")
+        encoded = packet.get("jpeg")
+        try:
+            if not isinstance(encoded, str) or not 0 < len(encoded) < 600_000:
+                raise ValueError
+            raw = base64.b64decode(encoded, validate=True)
+            with Image.open(BytesIO(raw), formats=["JPEG"]) as header:
+                if max(header.size) > 640:
+                    raise ValueError
+            frame = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                raise ValueError
+        except (ValueError, OSError, Image.DecompressionBombError, cv2.error):
+            ph_info.warning("Se recibió un fotograma inválido.")
+        else:
+            procesar_frame(frame, time.time(), "las " + datetime.now().strftime("%H:%M:%S"))
+            ss.frame_idx += 1
+        st.rerun()
+    if ss.frame_idx:
+        ph_info.caption(f"Fotogramas analizados: {ss.frame_idx}")
+elif fuente == "Imagen":
     if archivo is not None:
         id_archivo = (upload_key, tuple(sorted(umbral.items())))
         if ss.imagen_id != id_archivo:

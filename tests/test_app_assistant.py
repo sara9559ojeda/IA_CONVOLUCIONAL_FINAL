@@ -1,4 +1,6 @@
 """Integration tests for the detector and its assistant panel."""
+import base64
+import platform
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -50,6 +52,7 @@ def test_confirmar_borrado_actualiza_el_panel(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("failure", ["load", "recommendations", "chat"])
 def test_assistant_failure_does_not_stop_detection(monkeypatch, tmp_path, failure):
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
     st.cache_resource.clear()
     detector = Mock()
     detector.detectar.return_value = []
@@ -100,6 +103,7 @@ def test_assistant_failure_does_not_stop_detection(monkeypatch, tmp_path, failur
             assert app.warning
         else:
             assistant.recomendaciones.assert_not_called()
+        app.checkbox(key="local_camera").set_value(True).run(timeout=20)
         app.toggle(key="analizando").set_value(True).run(timeout=20)
         assert not app.exception
         detector.detectar.assert_called_once()
@@ -125,6 +129,35 @@ def test_assistant_failure_does_not_stop_detection(monkeypatch, tmp_path, failur
             assert any("Sin señal de la cámara 4" in w.value for w in app.warning)
             assert any("índice 0" in e.value for e in app.error)
             assert not any("Sin fuego ni humo" in m.value for m in app.markdown)
+    finally:
+        st.cache_resource.clear()
+
+
+def test_browser_camera_analyzes_each_received_frame_once(monkeypatch, tmp_path):
+    st.cache_resource.clear()
+    detector = Mock()
+    detector.detectar.return_value = []
+    monkeypatch.setitem(sys.modules, "src.detector", SimpleNamespace(
+        DetectorFuegoHumo=lambda: detector, dibujar=lambda frame, *_: frame))
+    assistant = Mock(nombre_modelo="test")
+    assistant.recomendaciones.return_value = []
+    monkeypatch.setattr(asistente, "AsistenteIncendios", lambda: assistant)
+    monkeypatch.setattr(config, "DIR_ALERTAS", tmp_path)
+    fake_camera = Mock()
+    monkeypatch.setitem(sys.modules, "src.browser_camera", SimpleNamespace(capture=fake_camera))
+    raw = np.full((24, 32, 3), 120, dtype=np.uint8)
+    ok, jpeg = cv2.imencode(".jpg", raw)
+    assert ok
+    packet = {"id": "test-frame", "jpeg": base64.b64encode(jpeg).decode()}
+    fake_camera.return_value = SimpleNamespace(frame=packet)
+    try:
+        app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=20)
+        app.toggle(key="analizando").set_value(True).run(timeout=20)
+        assert not app.exception
+        detector.detectar.assert_called_once()
+        assert np.array_equal(detector.detectar.call_args.args[0], raw)
+        assert fake_camera.call_args.kwargs["data"]["ack"] == packet["id"]
+        assert app.session_state["frame_idx"] == 1
     finally:
         st.cache_resource.clear()
 
