@@ -251,10 +251,11 @@ def render_recomendaciones(tipo):
         st.caption("Solo se muestran extracciones aceptadas; cuando no hay una respuesta fiable se indica expresamente.")
 
 
+history_start = ss.source_event_start if fuente == "Cámara web" else 0
+
+
 def render_historial():
-    tabla = ss.monitor.tabla_eventos()
-    if fuente == "Cámara web":
-        tabla = tabla[ss.source_event_start:]
+    tabla = ss.monitor.tabla_eventos()[history_start:]
     if tabla:
         ph_historial.dataframe(pd.DataFrame(tabla[::-1]), hide_index=True)
     else:
@@ -294,7 +295,7 @@ def render_guardadas(vista="inicial"):
 if enviada and pregunta.strip() and asistente is not None:
     try:
         with st.spinner("El asistente está pensando..."):
-            eventos_fuente = ss.monitor.eventos[ss.source_event_start:]
+            eventos_fuente = ss.monitor.eventos[history_start:]
             r = asistente.responder(pregunta.strip(), ss.estado, eventos_fuente)
         ss.source_chat.append((pregunta.strip(), r))
     except Exception:  # noqa: BLE001 - la inferencia no debe detener el detector

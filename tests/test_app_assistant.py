@@ -187,10 +187,18 @@ def test_chat_keeps_uploaded_video_as_capture_source(monkeypatch, tmp_path):
         app.toggle(key="analizando").set_value(True).run()
         open_capture.assert_called_once_with(str(path))
         open_capture.reset_mock()
-        app.text_input[0].set_value("¿Qué debo hacer?")
+        # The video history includes events recorded before the latest source change.
+        event = {"id": 2, "tipo": "Fuego incipiente", "nivel": "ALERTA",
+                 "inicio": "el minuto 00:08", "duracion_s": 7, "estado": "finalizado",
+                 "conf_max_%": 85, "area_max_%": 3, "_abierto": False}
+        app.session_state["monitor"].eventos.append(event)
+        app.session_state["source_event_start"] = 1
+        app.text_input[0].set_value("¿Cuánto duró el evento 2?")
         next(b for b in app.button if b.label == "Preguntar").click().run()
         assert not app.exception
         assistant.responder.assert_called_once()
+        assert assistant.responder.call_args.args[2] == [event]
+        assert app.dataframe[0].value["id"].tolist() == [2]
         open_capture.assert_called_once_with(str(path))
     finally:
         st.cache_resource.clear()
